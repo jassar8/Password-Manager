@@ -13,8 +13,11 @@
       <p class="popup-sub" id="headerHint">Secure your saved logins</p>
     </header>
 
-    <!-- 1) First time only: create master account -->
-    <section id="viewSignup" class="view" hidden>
+    <!-- Shown only until chrome.storage.local responds (avoids blank popup). -->
+    <p id="bootLoading" class="boot-loading">Loading…</p>
+
+    <!-- 1) First time only: create master account (only one of signup-section / login-section / dashboard-section is visible) -->
+    <section id="viewSignup" class="view signup-section" hidden>
       <h2 class="view-title">Create master account</h2>
       <p class="view-desc">This is the only time you set this up. Use a strong password.</p>
       <form id="signupForm" class="form">
@@ -33,7 +36,7 @@
     </section>
 
     <!-- 2) Every time after that: unlock vault -->
-    <section id="viewLogin" class="view" hidden>
+    <section id="viewLogin" class="view login-section" hidden>
       <h2 class="view-title">Log in</h2>
       <p class="view-desc">Enter your master credentials to view saved accounts.</p>
       <form id="loginForm" class="form">
@@ -51,11 +54,12 @@
     </section>
 
     <!-- 3) After correct login: list saved site accounts -->
-    <section id="viewDashboard" class="view" hidden>
+    <section id="viewDashboard" class="view dashboard-section" hidden>
       <div class="dash-toolbar">
         <h2 class="view-title view-title--sm">Saved accounts</h2>
         <button type="button" id="logoutBtn" class="btn btn-ghost">Log out</button>
       </div>
+      <p id="dashboardSessionNote" class="session-note" role="status" hidden></p>
       <p class="view-desc view-desc--tight">From pages where you chose to save a login.</p>
 
       <div id="emptyState" class="empty" hidden>No saved accounts yet. Log in on a website and save when prompted.</div>

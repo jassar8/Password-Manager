@@ -1,23 +1,23 @@
 /**
- * popup.js — extension toolbar popup.
+ * popup.js — Chrome extension popup (chrome.storage.local only, never localStorage).
  *
- * Flow:
- * 1. Read chrome.storage.local for a master record (spm_master).
- * 2. No master → Sign Up view (first time only).
- * 3. Master exists → Login view (every time you open the popup until you unlock).
- * 4. Correct master password → Dashboard (list saved site logins from spm_accounts).
+ * FLOW:
+ * 1) Popup opens → read spm_master + isLoggedIn from chrome.storage.local.
+ * 2) No master → signup-section only.
+ * 3) Master + isLoggedIn true → dashboard-section only (stays logged in between opens).
+ * 4) Master + isLoggedIn false → login-section only.
+ * 5) Successful login → set isLoggedIn true → dashboard-section.
+ * 6) Logout → set isLoggedIn false → login-section.
  */
 
-// XOR key for saved *website* passwords (same as content.js).
 const ENCRYPTION_KEY = "K";
-
-// Saved site logins (from content script): [{ id, url, username, encryptedPassword }, ...]
 const STORAGE_ACCOUNTS_KEY = "spm_accounts";
-
-// One master user for the popup: { username, password } — demo only (real apps hash passwords).
 const MASTER_STORAGE_KEY = "spm_master";
 
-// --- DOM ---
+/** Remember that the user already unlocked the vault (survives popup close). */
+const SESSION_LOGGED_IN_KEY = "isLoggedIn";
+
+const bootLoading = document.getElementById("bootLoading");
 const viewSignup = document.getElementById("viewSignup");
 const viewLogin = document.getElementById("viewLogin");
 const viewDashboard = document.getElementById("viewDashboard");
@@ -35,10 +35,10 @@ const loginError = document.getElementById("loginError");
 
 const logoutBtn = document.getElementById("logoutBtn");
 const dashboardLogoutBtn = document.getElementById("dashboardLogoutBtn");
+const dashboardSessionNote = document.getElementById("dashboardSessionNote");
 const accountList = document.getElementById("accountList");
 const emptyState = document.getElementById("emptyState");
 
-/** Same rules as the web app: min length 8 + upper, lower, digit, symbol. */
 function isStrongPassword(password) {
   if (password == null || password.length < 8) {
     return false;
@@ -81,7 +81,7 @@ function decrypt(cipher, key) {
 }
 
 /**
- * Show exactly one of: signup, login, dashboard.
+ * Show exactly ONE section: signup-section OR login-section OR dashboard-section.
  */
 function showView(name) {
   viewSignup.hidden = name !== "signup";
@@ -92,28 +92,92 @@ function showView(name) {
     headerHint.textContent = "Create your master account (first time)";
   } else if (name === "login") {
     headerHint.textContent = "Sign in to unlock your vault";
-  } else {
+  } else if (name === "dashboard") {
     headerHint.textContent = "Your saved logins";
+  }
+
+  if (name !== "dashboard" && dashboardSessionNote) {
+    dashboardSessionNote.hidden = true;
+    dashboardSessionNote.textContent = "";
   }
 }
 
-/** Load master from chrome.storage.local — null if missing or invalid JSON. */
+/**
+ * Short message on the dashboard: different text if user skipped login (remembered session)
+ * vs just typed their password.
+ */
+function setDashboardSessionMessage(mode) {
+  if (!dashboardSessionNote) {
+    return;
+  }
+  if (mode === "remembered") {
+    dashboardSessionNote.textContent =
+      "Remembered session — you're still logged in. Log out on shared computers.";
+  } else {
+    dashboardSessionNote.textContent =
+      "Welcome — your session will stay active until you log out.";
+  }
+  dashboardSessionNote.hidden = false;
+}
+
+function logStorageError(step) {
+  if (chrome.runtime.lastError) {
+    console.error("Password Manager storage [" + step + "]:", chrome.runtime.lastError.message);
+  }
+}
+
 function loadMaster(callback) {
   chrome.storage.local.get([MASTER_STORAGE_KEY], function (result) {
-    const raw = result[MASTER_STORAGE_KEY];
-    if (!raw || typeof raw.username !== "string" || typeof raw.password !== "string") {
+    logStorageError("loadMaster");
+
+    if (chrome.runtime.lastError) {
       callback(null);
       return;
     }
-    callback({ username: raw.username, password: raw.password });
+
+    const raw = result[MASTER_STORAGE_KEY];
+
+    if (raw == null || typeof raw !== "object") {
+      callback(null);
+      return;
+    }
+
+    const u = raw.username;
+    const p = raw.password;
+    if (typeof u !== "string" || typeof p !== "string") {
+      callback(null);
+      return;
+    }
+
+    callback({ username: u, password: p });
   });
 }
 
 function saveMaster(username, password, callback) {
-  chrome.storage.local.set(
-    { [MASTER_STORAGE_KEY]: { username: username, password: password } },
-    callback
-  );
+  const record = { username: username, password: password };
+
+  chrome.storage.local.set({ [MASTER_STORAGE_KEY]: record }, function () {
+    logStorageError("saveMaster");
+
+    if (chrome.runtime.lastError) {
+      callback(false);
+      return;
+    }
+
+    callback(true);
+  });
+}
+
+/**
+ * Save whether the user has unlocked the popup vault (chrome.storage.local).
+ */
+function setLoggedIn(isLoggedIn, callback) {
+  chrome.storage.local.set({ [SESSION_LOGGED_IN_KEY]: isLoggedIn }, function () {
+    logStorageError("setLoggedIn");
+    if (callback) {
+      callback(!chrome.runtime.lastError);
+    }
+  });
 }
 
 function shortUrl(url) {
@@ -125,7 +189,6 @@ function shortUrl(url) {
   }
 }
 
-/** Build the list of saved site accounts (only call after user unlocked dashboard). */
 function renderAccountList(accounts) {
   accountList.innerHTML = "";
 
@@ -181,35 +244,68 @@ function renderAccountList(accounts) {
   }
 }
 
-/** Load site accounts from storage and paint the dashboard list. */
 function refreshDashboard() {
   chrome.storage.local.get([STORAGE_ACCOUNTS_KEY], function (result) {
+    logStorageError("refreshDashboard");
     const list = result[STORAGE_ACCOUNTS_KEY];
     renderAccountList(Array.isArray(list) ? list : []);
   });
 }
 
 /**
- * When the popup opens: decide Sign up vs Login.
- * Sign up only if no master exists; otherwise always start on Login.
+ * Popup opened: read master + isLoggedIn together from chrome.storage.local.
  */
 function boot() {
-  loadMaster(function (master) {
-    if (!master) {
+  bootLoading.hidden = false;
+
+  chrome.storage.local.get([MASTER_STORAGE_KEY, SESSION_LOGGED_IN_KEY], function (result) {
+    logStorageError("boot");
+    bootLoading.hidden = true;
+
+    if (chrome.runtime.lastError) {
+      signupError.textContent = "Could not read storage.";
+      signupError.hidden = false;
       showView("signup");
+      return;
+    }
+
+    const raw = result[MASTER_STORAGE_KEY];
+    let master = null;
+    if (raw != null && typeof raw === "object") {
+      const u = raw.username;
+      const p = raw.password;
+      if (typeof u === "string" && typeof p === "string") {
+        master = { username: u, password: p };
+      }
+    }
+
+    const isLoggedIn = result[SESSION_LOGGED_IN_KEY] === true;
+
+    if (!master) {
+      if (isLoggedIn) {
+        setLoggedIn(false, null);
+      }
       signupError.hidden = true;
       signupError.textContent = "";
-    } else {
-      showView("login");
-      loginError.hidden = true;
-      loginError.textContent = "";
-      loginUser.value = "";
-      loginPass.value = "";
+      showView("signup");
+      return;
     }
+
+    if (isLoggedIn) {
+      setDashboardSessionMessage("remembered");
+      showView("dashboard");
+      refreshDashboard();
+      return;
+    }
+
+    loginError.hidden = true;
+    loginError.textContent = "";
+    loginUser.value = "";
+    loginPass.value = "";
+    showView("login");
   });
 }
 
-// --- Sign up: one-time master record in chrome.storage.local ---
 signupForm.addEventListener("submit", function (e) {
   e.preventDefault();
   signupError.hidden = true;
@@ -231,20 +327,28 @@ signupForm.addEventListener("submit", function (e) {
     return;
   }
 
-  saveMaster(u, p, function () {
-    signupUser.value = "";
-    signupPass.value = "";
-    // After first setup, next screen is always Login (not straight to dashboard).
-    showView("login");
-    loginError.hidden = true;
-    loginError.textContent = "";
-    loginUser.value = u;
-    loginPass.value = "";
-    loginUser.focus();
+  saveMaster(u, p, function (ok) {
+    if (!ok) {
+      signupError.textContent = "Could not save account. Check extension storage permission.";
+      signupError.hidden = false;
+      return;
+    }
+
+    setLoggedIn(false, function () {
+      signupUser.value = "";
+      signupPass.value = "";
+
+      loginError.hidden = true;
+      loginError.textContent = "";
+      loginUser.value = u;
+      loginPass.value = "";
+
+      showView("login");
+      loginUser.focus();
+    });
   });
 });
 
-// --- Login: must match stored master ---
 loginForm.addEventListener("submit", function (e) {
   e.preventDefault();
   loginError.hidden = true;
@@ -256,12 +360,17 @@ loginForm.addEventListener("submit", function (e) {
   loadMaster(function (master) {
     if (!master) {
       showView("signup");
+      signupError.textContent = "No master account found. Create one below.";
+      signupError.hidden = false;
       return;
     }
 
     if (u === master.username && p === master.password) {
-      showView("dashboard");
-      refreshDashboard();
+      setLoggedIn(true, function () {
+        setDashboardSessionMessage("fresh");
+        showView("dashboard");
+        refreshDashboard();
+      });
     } else {
       loginError.textContent = "Incorrect username or password.";
       loginError.hidden = false;
@@ -269,12 +378,14 @@ loginForm.addEventListener("submit", function (e) {
   });
 });
 
-// --- Log out: back to login (master stays in storage). Top bar and footer buttons do the same. ---
 function performPopupLogout() {
-  loginUser.value = "";
-  loginPass.value = "";
-  loginError.hidden = true;
-  showView("login");
+  setLoggedIn(false, function () {
+    loginUser.value = "";
+    loginPass.value = "";
+    loginError.hidden = true;
+    loginError.textContent = "";
+    showView("login");
+  });
 }
 
 logoutBtn.addEventListener("click", performPopupLogout);
