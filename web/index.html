@@ -7,29 +7,72 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Login: centered hero with accent frame -->
-  <div id="loginView" class="view view--login">
+  <!-- Auth: Sign up + Log in (master account) -->
+  <div id="authView" class="view view--login">
     <div class="login-frame">
       <p class="login-badge" aria-hidden="true">Secure vault</p>
+
       <div class="card card--narrow card--login">
-        <div class="brand">
+        <div class="brand brand--compact">
           <span class="brand__icon" aria-hidden="true">&#128274;</span>
           <h1 class="brand__title">Password Manager</h1>
-          <p class="brand__subtitle">Sign in with your master account to continue.</p>
+          <p class="brand__subtitle">Create a master account once, then sign in to open your vault.</p>
         </div>
-        <form id="loginForm" class="form" autocomplete="on">
-          <label class="field">
-            <span class="field__label">Master username</span>
-            <input type="text" id="masterUser" name="username" required placeholder="Enter username" />
-          </label>
-          <label class="field">
-            <span class="field__label">Master password</span>
-            <input type="password" id="masterPass" name="password" required placeholder="Enter password" />
-          </label>
-          <p id="loginError" class="msg msg--error" role="alert" hidden></p>
-          <button type="submit" class="btn btn--primary btn--block">Sign in</button>
-        </form>
+
+        <!-- Switch between Sign up and Log in -->
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+          <button type="button" id="tabSignup" class="auth-tab auth-tab--active" role="tab" aria-selected="true">
+            Sign up
+          </button>
+          <button type="button" id="tabLogin" class="auth-tab" role="tab" aria-selected="false">
+            Log in
+          </button>
+        </div>
+
+        <!--1) Sign up: first-time master account (blocked if one already exists) -->
+        <div id="signupPanel" class="auth-panel" role="tabpanel">
+          <form id="signupForm" class="form" autocomplete="off">
+            <label class="field">
+              <span class="field__label">Create master username</span>
+              <input type="text" id="signupUser" required placeholder="Choose a username" />
+            </label>
+            <label class="field">
+              <span class="field__label">Create master password</span>
+              <input type="password" id="signupPass" required minlength="8" placeholder="At least 8 strong characters" />
+            </label>
+            <p class="field-hint">At least 8 characters: uppercase, lowercase, number, and symbol.</p>
+            <p id="signupError" class="msg msg--error" role="alert" hidden></p>
+            <p id="signupOk" class="msg msg--ok" role="status" hidden></p>
+            <button type="submit" class="btn btn--primary btn--block">Create master account</button>
+          </form>
+          <p class="auth-footer">
+            Already registered?
+            <button type="button" class="link-btn" id="linkToLogin">Go to Log in</button>
+          </p>
+        </div>
+
+        <!-- 2) Log in: only the saved master credentials work -->
+        <div id="loginPanel" class="auth-panel auth-panel--hidden" role="tabpanel">
+          <form id="loginForm" class="form" autocomplete="on">
+            <label class="field">
+              <span class="field__label">Master username</span>
+              <input type="text" id="masterUser" name="username" required placeholder="Enter username" />
+            </label>
+            <label class="field">
+              <span class="field__label">Master password</span>
+              <input type="password" id="masterPass" name="password" required placeholder="Enter password" />
+            </label>
+            <p id="loginSuccess" class="msg msg--ok" role="status" hidden></p>
+            <p id="loginError" class="msg msg--error" role="alert" hidden></p>
+            <button type="submit" class="btn btn--primary btn--block">Sign in</button>
+          </form>
+          <p class="auth-footer">
+            First time here?
+            <button type="button" class="link-btn" id="linkToSignup">Go to Sign up</button>
+          </p>
+        </div>
       </div>
+
       <p class="login-meta">Course project · HTML, CSS &amp; JavaScript</p>
     </div>
   </div>
@@ -42,7 +85,7 @@
           <span class="brand__icon brand__icon--sm" aria-hidden="true">&#128274;</span>
           <div class="topbar__text">
             <h1 class="topbar__title">Vault</h1>
-            <p class="topbar__subtitle">Manage and test stored credentials</p>
+            <p class="topbar__subtitle">Manage your stored credentials</p>
           </div>
         </div>
         <button type="button" id="logoutBtn" class="btn btn--ghost">Log out</button>
@@ -52,7 +95,7 @@
         <section class="card">
           <span class="card__eyebrow">Create</span>
           <h2 class="card__heading">Add account</h2>
-          <p class="card__hint">Password must be exactly 8 characters with upper, lower, number, and symbol.</p>
+          <p class="card__hint">Password must be at least 8 characters with upper, lower, number, and symbol.</p>
           <form id="addForm" class="form">
             <label class="field">
               <span class="field__label">Site name</span>
@@ -64,33 +107,13 @@
             </label>
             <label class="field">
               <span class="field__label">Password</span>
-              <input type="text" id="accPass" maxlength="8" placeholder="8 characters" />
+              <input type="text" id="accPass" minlength="8" placeholder="At least 8 characters" />
             </label>
             <div class="row">
               <button type="button" id="genPassBtn" class="btn btn--secondary">Generate strong password</button>
               <button type="submit" class="btn btn--primary">Save account</button>
             </div>
             <p id="addMsg" class="msg" role="status"></p>
-          </form>
-        </section>
-
-        <section class="card">
-          <span class="card__eyebrow">Verify</span>
-          <h2 class="card__heading">Simulate login</h2>
-          <p class="card__hint">Choose a saved site account, then enter a password to test.</p>
-          <form id="simForm" class="form">
-            <label class="field">
-              <span class="field__label">Select site account</span>
-              <select id="simAccountSelect" required>
-                <option value="">— Select an account —</option>
-              </select>
-            </label>
-            <label class="field">
-              <span class="field__label">Password to try</span>
-              <input type="password" id="simPass" required placeholder="Enter password" />
-            </label>
-            <button type="submit" class="btn btn--primary btn--block">Try login</button>
-            <p id="simMsg" class="msg" role="status"></p>
           </form>
         </section>
 
@@ -105,6 +128,11 @@
           <ul id="accountsList" class="accounts" aria-live="polite"></ul>
         </section>
       </main>
+
+      <footer class="dashboard-footer">
+        <button type="button" id="dashboardLogoutBtn" class="btn btn--ghost btn--block">Logout</button>
+        <p class="dashboard-footer__hint">Return to the login screen</p>
+      </footer>
     </div>
   </div>
 

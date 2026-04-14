@@ -1,0 +1,251 @@
+/* Extension popup — auth + dashboard */
+
+body {
+  margin: 0;
+  min-width: 320px;
+  max-width: 380px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: #e8eaed;
+  background: linear-gradient(160deg, #1a1d24 0%, #12141a 100%);
+}
+
+.popup-wrap {
+  padding: 16px 16px 14px;
+}
+
+.popup-header {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.popup-title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.popup-sub {
+  margin: 0;
+  font-size: 12px;
+  color: #9aa0a6;
+  line-height: 1.4;
+}
+
+.view-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.view-title--sm {
+  font-size: 14px;
+  margin: 0;
+}
+
+.view-desc {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #9aa0a6;
+  line-height: 1.45;
+}
+
+.view-desc--tight {
+  margin-bottom: 10px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa0a6;
+}
+
+.field-hint {
+  margin: -4px 0 0;
+  font-size: 11px;
+  color: #80868b;
+  line-height: 1.35;
+}
+
+input[type="text"],
+input[type="password"] {
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 14px;
+  color: #e8eaed;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  outline: none;
+}
+
+input::placeholder {
+  color: #80868b;
+}
+
+input:focus {
+  border-color: #8ab4f8;
+  box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.2);
+}
+
+.btn {
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-primary {
+  background: #8ab4f8;
+  color: #12141a;
+}
+
+.btn-primary:hover {
+  background: #a8c7fa;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: #9aa0a6;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.btn-ghost:hover {
+  color: #e8eaed;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.msg {
+  margin: 0;
+  font-size: 12px;
+  min-height: 1em;
+}
+
+.msg-error {
+  color: #f28b82;
+}
+
+.dash-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.popup-foot {
+  margin: 12px 0 0;
+  font-size: 10px;
+  color: #80868b;
+  line-height: 1.35;
+}
+
+.empty {
+  padding: 14px;
+  text-align: center;
+  color: #9aa0a6;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.account-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.account-site {
+  font-weight: 600;
+  font-size: 13px;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.account-user {
+  font-size: 12px;
+  color: #9aa0a6;
+  margin-bottom: 8px;
+}
+
+.account-pass-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-pass {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  color: #8ab4f8;
+}
+
+.reveal-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8eaed;
+  cursor: pointer;
+}
+
+.reveal-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dash-logout-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.btn-logout-full {
+  width: 100%;
+  max-width: 220px;
+}
+
+.logout-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #80868b;
+}
