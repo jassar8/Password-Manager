@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Password Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Login: centered hero with accent frame -->
+  <div id="loginView" class="view view--login">
+    <div class="login-frame">
+      <p class="login-badge" aria-hidden="true">Secure vault</p>
+      <div class="card card--narrow card--login">
+        <div class="brand">
+          <span class="brand__icon" aria-hidden="true">&#128274;</span>
+          <h1 class="brand__title">Password Manager</h1>
+          <p class="brand__subtitle">Sign in with your master account to continue.</p>
+        </div>
+        <form id="loginForm" class="form" autocomplete="on">
+          <label class="field">
+            <span class="field__label">Master username</span>
+            <input type="text" id="masterUser" name="username" required placeholder="Enter username" />
+          </label>
+          <label class="field">
+            <span class="field__label">Master password</span>
+            <input type="password" id="masterPass" name="password" required placeholder="Enter password" />
+          </label>
+          <p id="loginError" class="msg msg--error" role="alert" hidden></p>
+          <button type="submit" class="btn btn--primary btn--block">Sign in</button>
+        </form>
+      </div>
+      <p class="login-meta">Course project · HTML, CSS &amp; JavaScript</p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboardView" class="view view--app view--hidden">
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar__brand">
+          <span class="brand__icon brand__icon--sm" aria-hidden="true">&#128274;</span>
+          <div class="topbar__text">
+            <h1 class="topbar__title">Vault</h1>
+            <p class="topbar__subtitle">Manage and test stored credentials</p>
+          </div>
+        </div>
+        <button type="button" id="logoutBtn" class="btn btn--ghost">Log out</button>
+      </header>
+
+      <main class="main-grid">
+        <section class="card">
+          <span class="card__eyebrow">Create</span>
+          <h2 class="card__heading">Add account</h2>
+          <p class="card__hint">Password must be exactly 8 characters with upper, lower, number, and symbol.</p>
+          <form id="addForm" class="form">
+            <label class="field">
+              <span class="field__label">Site name</span>
+              <input type="text" id="accSite" required placeholder="e.g. Gmail" />
+            </label>
+            <label class="field">
+              <span class="field__label">Username</span>
+              <input type="text" id="accUser" required placeholder="Your login" />
+            </label>
+            <label class="field">
+              <span class="field__label">Password</span>
+              <input type="text" id="accPass" maxlength="8" placeholder="8 characters" />
+            </label>
+            <div class="row">
+              <button type="button" id="genPassBtn" class="btn btn--secondary">Generate strong password</button>
+              <button type="submit" class="btn btn--primary">Save account</button>
+            </div>
+            <p id="addMsg" class="msg" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card">
+          <span class="card__eyebrow">Verify</span>
+          <h2 class="card__heading">Simulate login</h2>
+          <p class="card__hint">Choose a saved site account, then enter a password to test.</p>
+          <form id="simForm" class="form">
+            <label class="field">
+              <span class="field__label">Select site account</span>
+              <select id="simAccountSelect" required>
+                <option value="">— Select an account —</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">Password to try</span>
+              <input type="password" id="simPass" required placeholder="Enter password" />
+            </label>
+            <button type="submit" class="btn btn--primary btn--block">Try login</button>
+            <p id="simMsg" class="msg" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card card--wide">
+          <div class="card__wide-head">
+            <div>
+              <span class="card__eyebrow">Overview</span>
+              <h2 class="card__heading">Saved accounts</h2>
+            </div>
+          </div>
+          <p id="accountsEmpty" class="card__hint card__hint--flush">Loading…</p>
+          <ul id="accountsList" class="accounts" aria-live="polite"></ul>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
