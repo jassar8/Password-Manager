@@ -220,14 +220,43 @@ input:focus {
 .account-site {
   font-weight: 600;
   font-size: 13px;
+  word-break: break-word;
+  margin-bottom: 2px;
+}
+
+.account-url-line {
+  font-size: 11px;
+  color: #80868b;
   word-break: break-all;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .account-user {
   font-size: 12px;
   color: #9aa0a6;
   margin-bottom: 8px;
+}
+
+.account-open-row {
+  margin-bottom: 10px;
+}
+
+.btn-open-site {
+  width: 100%;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #12141a;
+  background: #8ab4f8;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-open-site:hover {
+  background: #a8c7fa;
 }
 
 .account-pass-row {

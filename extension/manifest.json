@@ -3,7 +3,10 @@
   "name": "Simple Password Manager",
   "version": "1.0.0",
   "description": "Master login in the popup, XOR-encrypted saved logins in chrome.storage.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
   "host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",

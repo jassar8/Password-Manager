@@ -180,13 +180,59 @@ function setLoggedIn(isLoggedIn, callback) {
   });
 }
 
+/**
+ * Same rule as content.js: URLs without http(s) get https:// so links always work.
+ */
+function ensureHttpsUrl(raw) {
+  const t = (raw || "").trim();
+  if (!t) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(t)) {
+    return t;
+  }
+  return "https://" + t;
+}
+
 function shortUrl(url) {
   try {
-    const u = new URL(url);
+    const u = new URL(ensureHttpsUrl(url));
     return u.hostname + u.pathname;
   } catch (e) {
-    return url;
+    return url || "";
   }
+}
+
+/**
+ * Open the saved website URL in a new browser tab.
+ * Requires "tabs" in manifest.json so chrome.tabs.create works from the popup.
+ */
+function openWebsiteInNewTab(rawUrl) {
+  const savedUrl = ensureHttpsUrl(rawUrl);
+  if (!savedUrl) {
+    return;
+  }
+  chrome.tabs.create({ url: savedUrl });
+}
+
+/** Read website URL from an entry (new field or old "url" for older saves). */
+function getAccountWebsiteUrl(a) {
+  if (a.websiteUrl && typeof a.websiteUrl === "string") {
+    return a.websiteUrl;
+  }
+  if (a.url && typeof a.url === "string") {
+    return a.url;
+  }
+  return "";
+}
+
+/** Friendly title for the card (new siteName or shortened URL). */
+function getAccountSiteName(a) {
+  if (a.siteName && String(a.siteName).trim()) {
+    return String(a.siteName).trim();
+  }
+  const u = getAccountWebsiteUrl(a);
+  return u ? shortUrl(u) : "Saved account";
 }
 
 function renderAccountList(accounts) {
@@ -208,12 +254,37 @@ function renderAccountList(accounts) {
 
     const site = document.createElement("div");
     site.className = "account-site";
-    site.textContent = shortUrl(a.url);
-    site.title = a.url;
+    const displayUrl = getAccountWebsiteUrl(a);
+    site.textContent = getAccountSiteName(a);
+    site.title = displayUrl ? ensureHttpsUrl(displayUrl) : "";
+
+    if (displayUrl) {
+      const urlLine = document.createElement("div");
+      urlLine.className = "account-url-line";
+      urlLine.textContent = shortUrl(displayUrl);
+      li.appendChild(site);
+      li.appendChild(urlLine);
+    } else {
+      li.appendChild(site);
+    }
 
     const user = document.createElement("div");
     user.className = "account-user";
-    user.textContent = a.username || "(no username)";
+    user.textContent = "Username: " + (a.username || "(none)");
+
+    const openRow = document.createElement("div");
+    openRow.className = "account-open-row";
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "btn-open-site";
+    openBtn.textContent = "Open website";
+    const urlToOpen = getAccountWebsiteUrl(a);
+    openBtn.disabled = !urlToOpen;
+    openBtn.addEventListener("click", function () {
+      openWebsiteInNewTab(urlToOpen);
+    });
+
+    openRow.appendChild(openBtn);
 
     const passRow = document.createElement("div");
     passRow.className = "account-pass-row";
@@ -237,8 +308,8 @@ function renderAccountList(accounts) {
     passRow.appendChild(passSpan);
     passRow.appendChild(btn);
 
-    li.appendChild(site);
     li.appendChild(user);
+    li.appendChild(openRow);
     li.appendChild(passRow);
     accountList.appendChild(li);
   }
