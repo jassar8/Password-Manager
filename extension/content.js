@@ -1,287 +1,425 @@
 /**
- * content.js — runs on every http(s) page.
- * Finds login forms, then offers to save: site name, website URL, username, encrypted password.
+ * content.js
+ * Detect login forms, ask user to save on submit,
+ * encrypt password with simple XOR, then POST to backend.
  */
 
-const ENCRYPTION_KEY = "K";
-const STORAGE_ACCOUNTS_KEY = "spm_accounts";
+const BACKEND_URL = "http://localhost:3000";
+const XOR_KEY = "K";
 
-function encrypt(plain, key) {
-  if (plain == null || plain === "") {
+function xorEncrypt(text, key) {
+  if (!text) {
     return "";
   }
-  const k = key.charCodeAt(0);
-  let out = "";
-  for (let i = 0; i < plain.length; i++) {
-    out += String.fromCharCode(plain.charCodeAt(i) ^ k);
+  const keyCode = key.charCodeAt(0);
+  let encrypted = "";
+  for (let i = 0; i < text.length; i++) {
+    encrypted += String.fromCharCode(text.charCodeAt(i) ^ keyCode);
   }
-  return out;
+  return encrypted;
+}
+
+function getSiteName() {
+  if (document.title && document.title.trim()) {
+    return document.title.trim();
+  }
+  return window.location.hostname;
 }
 
 /**
- * If the user types "amazon.com" or "//amazon.com", make it a full https URL before saving/opening.
+ * Normalize URL so duplicate checks are consistent.
+ * Examples treated as the same:
+ * - http://example.com
+ * - https://example.com
+ * - www.example.com
+ * - example.com/login
  */
-function ensureHttpsUrl(raw) {
-  const t = (raw || "").trim();
-  if (!t) {
+function normalizeUrl(rawUrl) {
+  const raw = (rawUrl || "").trim().toLowerCase();
+  if (!raw) {
     return "";
   }
-  if (/^https?:\/\//i.test(t)) {
-    return t;
+
+  try {
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+    const parsed = new URL(withScheme);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch (e) {
+    // Fallback for unusual text that fails URL parsing.
+    return raw
+      .replace(/^https?:\/\//i, "")
+      .replace(/^www\./i, "")
+      .split(/[/?#]/)[0];
   }
-  return "https://" + t;
+}
+
+/**
+ * Homework-style strong password check:
+ * - lowercase, uppercase, number, symbol
+ * - at least 8 chars
+ */
+function isStrongPassword(password) {
+  if (!password || password.length < 8) {
+    return false;
+  }
+  let hasLower = false;
+  let hasUpper = false;
+  let hasNumber = false;
+  let hasSymbol = false;
+
+  for (let i = 0; i < password.length; i++) {
+    const c = password[i];
+    if (c >= "a" && c <= "z") {
+      hasLower = true;
+    } else if (c >= "A" && c <= "Z") {
+      hasUpper = true;
+    } else if (c >= "0" && c <= "9") {
+      hasNumber = true;
+    } else {
+      hasSymbol = true;
+    }
+  }
+  return hasLower && hasUpper && hasNumber && hasSymbol;
+}
+
+/**
+ * Create random strong password with shuffled characters.
+ */
+function generateStrongPassword() {
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const symbols = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+  const all = lower + upper + numbers + symbols;
+
+  const targetLength = 14;
+  const chars = [];
+
+  // Guarantee required character types.
+  chars.push(lower[Math.floor(Math.random() * lower.length)]);
+  chars.push(upper[Math.floor(Math.random() * upper.length)]);
+  chars.push(numbers[Math.floor(Math.random() * numbers.length)]);
+  chars.push(symbols[Math.floor(Math.random() * symbols.length)]);
+
+  // Fill the rest randomly.
+  while (chars.length < targetLength) {
+    chars.push(all[Math.floor(Math.random() * all.length)]);
+  }
+
+  // Shuffle so character types are not predictable.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = temp;
+  }
+
+  return chars.join("");
+}
+
+function looksLikeSignupForm(form) {
+  const text = (
+    (form.id || "") +
+    " " +
+    (form.className || "") +
+    " " +
+    (form.getAttribute("action") || "") +
+    " " +
+    (form.textContent || "")
+  ).toLowerCase();
+
+  const hasSignupWords = /(sign.?up|register|create account|new account|join)/i.test(text);
+  const passwordInputs = form.querySelectorAll('input[type="password"]');
+
+  // Two password fields usually means "password + confirm password".
+  if (passwordInputs.length >= 2) {
+    return true;
+  }
+  return hasSignupWords;
+}
+
+function insertPasswordSuggestionUi(form, passwordInput) {
+  if (form.dataset.pmSuggestUiAdded === "1") {
+    return;
+  }
+  form.dataset.pmSuggestUiAdded = "1";
+
+  const passwordInputs = Array.from(form.querySelectorAll('input[type="password"]'));
+  const helper = document.createElement("div");
+  helper.style.marginTop = "8px";
+  helper.style.padding = "8px";
+  helper.style.border = "1px solid #d1d5db";
+  helper.style.borderRadius = "8px";
+  helper.style.background = "#f9fafb";
+  helper.style.fontFamily = "Arial, sans-serif";
+
+  const title = document.createElement("div");
+  title.textContent = "Strong password helper";
+  title.style.fontSize = "12px";
+  title.style.fontWeight = "700";
+  title.style.marginBottom = "6px";
+  title.style.color = "#374151";
+
+  const output = document.createElement("input");
+  output.type = "text";
+  output.readOnly = true;
+  output.placeholder = "Click Generate Password";
+  output.style.width = "100%";
+  output.style.padding = "6px 8px";
+  output.style.border = "1px solid #d1d5db";
+  output.style.borderRadius = "6px";
+  output.style.marginBottom = "6px";
+  output.style.fontSize = "12px";
+
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.gap = "6px";
+  row.style.flexWrap = "wrap";
+
+  function makeBtn(label) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.style.border = "1px solid #d1d5db";
+    btn.style.borderRadius = "6px";
+    btn.style.padding = "5px 8px";
+    btn.style.fontSize = "12px";
+    btn.style.cursor = "pointer";
+    btn.style.background = "#ffffff";
+    return btn;
+  }
+
+  const btnGenerate = makeBtn("Generate Password");
+  const btnAgain = makeBtn("Generate Again");
+  const btnUse = makeBtn("Use Password");
+  const btnCopy = makeBtn("Copy");
+  const note = document.createElement("div");
+  note.style.fontSize = "11px";
+  note.style.marginTop = "6px";
+  note.style.color = "#6b7280";
+  note.textContent = "Must include lowercase, uppercase, number, and symbol.";
+
+  function placeInPasswordFields(pwd) {
+    passwordInput.value = pwd;
+    // If this is a signup form with confirm password, fill both for convenience.
+    if (passwordInputs.length >= 2) {
+      passwordInputs[1].value = pwd;
+    }
+  }
+
+  function generateAndShow() {
+    const pwd = generateStrongPassword();
+    output.value = pwd;
+    note.textContent = "Generated strong password. Click Use Password to fill.";
+  }
+
+  btnGenerate.addEventListener("click", generateAndShow);
+  btnAgain.addEventListener("click", generateAndShow);
+  btnUse.addEventListener("click", function () {
+    if (!output.value) {
+      generateAndShow();
+    }
+    placeInPasswordFields(output.value);
+    note.textContent = "Password filled in the form.";
+  });
+  btnCopy.addEventListener("click", function () {
+    if (!output.value) {
+      generateAndShow();
+    }
+    navigator.clipboard.writeText(output.value).then(
+      function () {
+        note.textContent = "Copied to clipboard.";
+      },
+      function () {
+        note.textContent = "Could not copy. You can copy manually.";
+      }
+    );
+  });
+
+  row.appendChild(btnGenerate);
+  row.appendChild(btnAgain);
+  row.appendChild(btnUse);
+  row.appendChild(btnCopy);
+  helper.appendChild(title);
+  helper.appendChild(output);
+  helper.appendChild(row);
+  helper.appendChild(note);
+
+  passwordInput.insertAdjacentElement("afterend", helper);
+
+  // Suggest one strong password immediately for signup forms.
+  generateAndShow();
 }
 
 function findUsernameInput(form, passwordInput) {
-  const inputs = Array.prototype.slice.call(form.querySelectorAll("input"));
-  const passIdx = inputs.indexOf(passwordInput);
-  if (passIdx <= 0) {
-    return null;
+  const inputs = Array.from(form.querySelectorAll("input"));
+  const pass = passwordInput;
+
+  // 1) Try inputs that look like username/email fields.
+  const probable = inputs.filter(function (el) {
+    if (el === pass) return false;
+    const type = (el.type || "").toLowerCase();
+    return type === "text" || type === "email" || type === "tel" || type === "search";
+  });
+
+  const byAttr = probable.filter(function (el) {
+    const n = (el.name || "") + " " + (el.id || "");
+    return /(user|email|login)/i.test(n);
+  });
+
+  if (byAttr.length > 0) {
+    return byAttr[0];
   }
-  for (let i = passIdx - 1; i >= 0; i--) {
-    const el = inputs[i];
-    const t = (el.type || "").toLowerCase();
-    if (t === "password" || t === "hidden" || t === "submit" || t === "button" || t === "checkbox" || t === "radio") {
-      continue;
+  if (probable.length > 0) {
+    return probable[0];
+  }
+
+  // 2) Fallback: closest field before the password input.
+  const passwordIndex = inputs.indexOf(pass);
+  for (let i = passwordIndex - 1; i >= 0; i--) {
+    const input = inputs[i];
+    const type = (input.type || "").toLowerCase();
+    if (type !== "password" && type !== "hidden" && type !== "submit" && type !== "button") {
+      return input;
     }
-    return el;
   }
+
   return null;
 }
 
-function loadAccounts(callback) {
-  chrome.storage.local.get([STORAGE_ACCOUNTS_KEY], function (result) {
-    const list = result[STORAGE_ACCOUNTS_KEY];
-    callback(Array.isArray(list) ? list : []);
+async function sendAccountToBackend(account) {
+  const response = await fetch(BACKEND_URL + "/save-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(account),
+    // Helps when the page navigates right after submit.
+    keepalive: true,
   });
-}
 
-function saveAccount(entry, callback) {
-  loadAccounts(function (accounts) {
-    accounts.push(entry);
-    chrome.storage.local.set({ [STORAGE_ACCOUNTS_KEY]: accounts }, callback);
-  });
-}
-
-function escapeHtml(s) {
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-function labelStyle() {
-  return "display:block;font-size:12px;font-weight:600;margin:10px 0 4px;color:#333;";
-}
-
-function inputStyle() {
-  return "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ccc;border-radius:8px;font-size:14px;";
-}
-
-/**
- * Modal: user can edit site name + website URL before saving.
- */
-function showSavePrompt(defaultSiteName, defaultUrl, username, password, onSave, onSkip) {
-  const existing = document.getElementById("spm-save-overlay");
-  if (existing) {
-    existing.remove();
+  if (!response.ok) {
+    throw new Error("Could not save account to backend.");
   }
+}
 
-  const overlay = document.createElement("div");
-  overlay.id = "spm-save-overlay";
-  overlay.setAttribute(
-    "style",
-    [
-      "position:fixed",
-      "inset:0",
-      "background:rgba(0,0,0,0.45)",
-      "z-index:2147483646",
-      "display:flex",
-      "align-items:center",
-      "justify-content:center",
-      "font-family:system-ui,sans-serif",
-    ].join(";")
-  );
-
-  const box = document.createElement("div");
-  box.setAttribute(
-    "style",
-    [
-      "background:#fff",
-      "color:#111",
-      "padding:20px 22px",
-      "border-radius:12px",
-      "max-width:92vw",
-      "width:400px",
-      "box-shadow:0 12px 40px rgba(0,0,0,0.25)",
-    ].join(";")
-  );
-
-  const title = document.createElement("p");
-  title.textContent = "Do you want to save this account?";
-  title.setAttribute("style", "margin:0 0 12px;font-size:17px;font-weight:600;");
-
-  const lblName = document.createElement("label");
-  lblName.setAttribute("style", labelStyle());
-  const lblNameText = document.createElement("span");
-  lblNameText.textContent = "Site name";
-  const siteNameInput = document.createElement("input");
-  siteNameInput.type = "text";
-  siteNameInput.setAttribute("style", inputStyle());
-  siteNameInput.value = defaultSiteName;
-  siteNameInput.placeholder = "e.g. Amazon";
-  lblName.appendChild(lblNameText);
-  lblName.appendChild(document.createElement("br"));
-  lblName.appendChild(siteNameInput);
-
-  const lblUrl = document.createElement("label");
-  lblUrl.setAttribute("style", labelStyle());
-  const lblUrlText = document.createElement("span");
-  lblUrlText.textContent = "Website URL";
-  const urlInput = document.createElement("input");
-  urlInput.type = "text";
-  urlInput.setAttribute("style", inputStyle());
-  urlInput.value = defaultUrl;
-  urlInput.placeholder = "https://www.amazon.com";
-  lblUrl.appendChild(lblUrlText);
-  lblUrl.appendChild(document.createElement("br"));
-  lblUrl.appendChild(urlInput);
-
-  const info = document.createElement("div");
-  info.setAttribute("style", "font-size:13px;line-height:1.5;color:#333;margin:12px 0 16px;");
-  info.innerHTML =
-    "<strong>Username:</strong> " +
-    escapeHtml(username) +
-    "<br><strong>Password:</strong> " +
-    (password ? "••••••••" : "(empty)");
-
-  const row = document.createElement("div");
-  row.setAttribute("style", "display:flex;gap:10px;justify-content:flex-end;");
-
-  const btnSkip = document.createElement("button");
-  btnSkip.type = "button";
-  btnSkip.textContent = "Not now";
-  btnSkip.setAttribute(
-    "style",
-    "padding:8px 14px;border-radius:8px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;"
-  );
-
-  const btnSave = document.createElement("button");
-  btnSave.type = "button";
-  btnSave.textContent = "Save";
-  btnSave.setAttribute(
-    "style",
-    "padding:8px 14px;border-radius:8px;border:none;background:#1a73e8;color:#fff;cursor:pointer;font-weight:600;"
-  );
-
-  btnSkip.addEventListener("click", function () {
-    overlay.remove();
-    onSkip();
-  });
-
-  btnSave.addEventListener("click", function () {
-    let websiteUrl = ensureHttpsUrl(urlInput.value);
-    if (!websiteUrl) {
-      websiteUrl = ensureHttpsUrl(defaultUrl);
+async function findDuplicateAccountOnBackend(websiteUrl) {
+  try {
+    const response = await fetch(BACKEND_URL + "/accounts", {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
     }
 
-    let siteName = (siteNameInput.value || "").trim();
-    if (!siteName) {
-      try {
-        siteName = new URL(websiteUrl).hostname.replace(/^www\./, "");
-      } catch (e) {
-        siteName = "Saved site";
+    const accounts = await response.json();
+    if (!Array.isArray(accounts)) {
+      return null;
+    }
+
+    const target = normalizeUrl(websiteUrl);
+    for (let i = 0; i < accounts.length; i++) {
+      const existing = accounts[i];
+      if (normalizeUrl(existing.websiteUrl) === target) {
+        return existing;
       }
     }
+  } catch (e) {
+    // If this check fails, backend will still perform duplicate replacement.
+  }
 
-    const encrypted = encrypt(password, ENCRYPTION_KEY);
-    const entry = {
-      id: String(Date.now()),
-      siteName: siteName,
-      websiteUrl: websiteUrl,
-      username: username,
-      encryptedPassword: encrypted,
-    };
-
-    saveAccount(entry, function () {
-      overlay.remove();
-      onSave();
-    });
-  });
-
-  row.appendChild(btnSkip);
-  row.appendChild(btnSave);
-  box.appendChild(title);
-  box.appendChild(lblName);
-  box.appendChild(lblUrl);
-  box.appendChild(info);
-  box.appendChild(row);
-  overlay.appendChild(box);
-  document.documentElement.appendChild(overlay);
+  return null;
 }
 
-function attachToForm(form) {
-  const passInput = form.querySelector('input[type="password"]');
-  if (!passInput) {
+function handleForm(form) {
+  if (form.dataset.pmConnected === "true") {
+    return;
+  }
+  form.dataset.pmConnected = "true";
+
+  const passwordInput = form.querySelector('input[type="password"]');
+  if (!passwordInput) {
     return;
   }
 
-  const userInput = findUsernameInput(form, passInput);
-
-  if (form.dataset.spmHooked === "1") {
-    return;
+  if (looksLikeSignupForm(form)) {
+    insertPasswordSuggestionUi(form, passwordInput);
   }
-  form.dataset.spmHooked = "1";
+
+  const usernameInput = findUsernameInput(form, passwordInput);
 
   form.addEventListener(
     "submit",
-    function (event) {
-      if (form.dataset.spmSkipPrompt === "1") {
-        form.dataset.spmSkipPrompt = "0";
+    async function (event) {
+      // Prevent infinite loops when we re-submit the form.
+      if (form.dataset.pmBypassSubmit === "1") {
+        form.dataset.pmBypassSubmit = "0";
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
 
-      const pageUrl = location.href.split("#")[0];
-      let defaultSiteName = "";
-      try {
-        defaultSiteName = document.title.trim() || new URL(pageUrl).hostname;
-      } catch (e) {
-        defaultSiteName = location.hostname || "Website";
+      const username = usernameInput ? usernameInput.value.trim() : "";
+      const password = passwordInput.value || "";
+
+      // If form doesn't look like a login, just continue.
+      if (!password) {
+        form.dataset.pmBypassSubmit = "1";
+        form.submit();
+        return;
       }
 
-      const username = userInput ? (userInput.value || "").trim() : "";
-      const password = passInput.value || "";
+      const websiteUrl = window.location.href.split("#")[0];
+      const duplicateAccount = await findDuplicateAccountOnBackend(websiteUrl);
+      const confirmText = duplicateAccount
+        ? "This website already has a saved account. Save now and replace the old one?"
+        : "Save this login to your Password Manager?";
 
-      showSavePrompt(
-        defaultSiteName,
-        pageUrl,
-        username,
-        password,
-        function () {
-          form.dataset.spmSkipPrompt = "1";
+      const shouldSave = window.confirm(confirmText);
+
+      if (shouldSave) {
+        // If user entered their own password, validate strong rule before saving.
+        if (!isStrongPassword(password)) {
+          window.alert(
+            "Password was not saved because it is not strong enough. " +
+              "Use lowercase, uppercase, number, and symbol."
+          );
+          form.dataset.pmBypassSubmit = "1";
           form.submit();
-        },
-        function () {
-          form.dataset.spmSkipPrompt = "1";
-          form.submit();
+          return;
         }
-      );
+
+        const account = {
+          siteName: getSiteName(),
+          websiteUrl: websiteUrl,
+          username: username,
+          encryptedPassword: xorEncrypt(password, XOR_KEY),
+        };
+
+        try {
+          await sendAccountToBackend(account);
+        } catch (error) {
+          // Keep it simple: still submit the form even if the backend save fails.
+          console.error("Password Manager:", error.message);
+        }
+      }
+
+      // Continue original site login.
+      form.dataset.pmBypassSubmit = "1";
+      form.submit();
     },
     true
   );
 }
 
-function scanForms() {
-  document.querySelectorAll("form").forEach(function (form) {
-    attachToForm(form);
-  });
+function scanPageForForms() {
+  const forms = document.querySelectorAll("form");
+  forms.forEach(handleForm);
 }
 
-scanForms();
+scanPageForForms();
 
 const observer = new MutationObserver(function () {
-  scanForms();
+  scanPageForForms();
 });
 observer.observe(document.documentElement, { childList: true, subtree: true });

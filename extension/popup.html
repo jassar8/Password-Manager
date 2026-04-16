@@ -2,76 +2,68 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Password Manager</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Password Manager Connector</title>
+  <style>
+    body {
+      margin: 0;
+      min-width: 300px;
+      font-family: Arial, sans-serif;
+      background: #f5f6fb;
+      color: #1f2937;
+    }
+    .wrap {
+      padding: 14px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    p {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: #374151;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    button {
+      border: none;
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    #openDashboardBtn {
+      background: #2563eb;
+      color: white;
+      flex: 1;
+    }
+    #testApiBtn {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    #statusText {
+      margin-top: 10px;
+      font-size: 12px;
+      min-height: 16px;
+    }
+  </style>
 </head>
 <body>
-  <div class="popup-wrap">
-    <!-- Brand (always visible at top of popup) -->
-    <header class="popup-header">
-      <h1 class="popup-title">Password Manager</h1>
-      <p class="popup-sub" id="headerHint">Secure your saved logins</p>
-    </header>
-
-    <!-- Shown only until chrome.storage.local responds (avoids blank popup). -->
-    <p id="bootLoading" class="boot-loading">Loading…</p>
-
-    <!-- 1) First time only: create master account (only one of signup-section / login-section / dashboard-section is visible) -->
-    <section id="viewSignup" class="view signup-section" hidden>
-      <h2 class="view-title">Create master account</h2>
-      <p class="view-desc">This is the only time you set this up. Use a strong password.</p>
-      <form id="signupForm" class="form">
-        <label class="field">
-          <span class="field-label">Master username</span>
-          <input type="text" id="signupUser" autocomplete="off" required placeholder="Choose a username" />
-        </label>
-        <label class="field">
-          <span class="field-label">Master password</span>
-          <input type="password" id="signupPass" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" />
-        </label>
-        <p class="field-hint">At least 8 characters with upper, lower, number, and symbol.</p>
-        <p id="signupError" class="msg msg-error" role="alert" hidden></p>
-        <button type="submit" class="btn btn-primary">Create account</button>
-      </form>
-    </section>
-
-    <!-- 2) Every time after that: unlock vault -->
-    <section id="viewLogin" class="view login-section" hidden>
-      <h2 class="view-title">Log in</h2>
-      <p class="view-desc">Enter your master credentials to view saved accounts.</p>
-      <form id="loginForm" class="form">
-        <label class="field">
-          <span class="field-label">Username</span>
-          <input type="text" id="loginUser" autocomplete="username" required placeholder="Master username" />
-        </label>
-        <label class="field">
-          <span class="field-label">Password</span>
-          <input type="password" id="loginPass" autocomplete="current-password" required placeholder="Master password" />
-        </label>
-        <p id="loginError" class="msg msg-error" role="alert" hidden></p>
-        <button type="submit" class="btn btn-primary">Unlock</button>
-      </form>
-    </section>
-
-    <!-- 3) After correct login: list saved site accounts -->
-    <section id="viewDashboard" class="view dashboard-section" hidden>
-      <div class="dash-toolbar">
-        <h2 class="view-title view-title--sm">Saved accounts</h2>
-        <button type="button" id="logoutBtn" class="btn btn-ghost">Log out</button>
-      </div>
-      <p id="dashboardSessionNote" class="session-note" role="status" hidden></p>
-      <p class="view-desc view-desc--tight">From pages where you chose to save a login.</p>
-
-      <div id="emptyState" class="empty" hidden>No saved accounts yet. Log in on a website and save when prompted.</div>
-      <ul id="accountList" class="account-list"></ul>
-
-      <div class="dash-logout-footer">
-        <button type="button" id="dashboardLogoutBtn" class="btn btn-ghost btn-logout-full">Logout</button>
-        <p class="logout-hint">Return to the login screen</p>
-      </div>
-
-      <p class="popup-foot">Demo: XOR + fixed key is not real security.</p>
-    </section>
+  <div class="wrap">
+    <h1>Password Manager</h1>
+    <p>
+      This extension watches login forms and can send saved credentials to your backend.
+    </p>
+    <p><strong>Backend:</strong> <span id="backendUrl">http://localhost:3000</span></p>
+    <div class="row">
+      <button id="openDashboardBtn" type="button">Open Web Dashboard</button>
+      <button id="testApiBtn" type="button">Test API</button>
+    </div>
+    <div id="statusText"></div>
   </div>
   <script src="popup.js"></script>
 </body>

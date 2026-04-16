@@ -3,138 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Password Manager</title>
+  <title>Password Manager Dashboard</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Auth: Sign up + Log in (master account) -->
-  <div id="authView" class="view view--login">
-    <div class="login-frame">
-      <p class="login-badge" aria-hidden="true">Secure vault</p>
+  <main class="container">
+    <h1>Password Manager Dashboard</h1>
+    <p class="subtitle">Saved accounts loaded from your backend API.</p>
 
-      <div class="card card--narrow card--login">
-        <div class="brand brand--compact">
-          <span class="brand__icon" aria-hidden="true">&#128274;</span>
-          <h1 class="brand__title">Password Manager</h1>
-          <p class="brand__subtitle">Create a master account once, then sign in to open your vault.</p>
-        </div>
-
-        <!-- Switch between Sign up and Log in -->
-        <div class="auth-tabs" role="tablist" aria-label="Account access">
-          <button type="button" id="tabSignup" class="auth-tab auth-tab--active" role="tab" aria-selected="true">
-            Sign up
-          </button>
-          <button type="button" id="tabLogin" class="auth-tab" role="tab" aria-selected="false">
-            Log in
-          </button>
-        </div>
-
-        <!--1) Sign up: first-time master account (blocked if one already exists) -->
-        <div id="signupPanel" class="auth-panel" role="tabpanel">
-          <form id="signupForm" class="form" autocomplete="off">
-            <label class="field">
-              <span class="field__label">Create master username</span>
-              <input type="text" id="signupUser" required placeholder="Choose a username" />
-            </label>
-            <label class="field">
-              <span class="field__label">Create master password</span>
-              <input type="password" id="signupPass" required minlength="8" placeholder="At least 8 strong characters" />
-            </label>
-            <p class="field-hint">At least 8 characters: uppercase, lowercase, number, and symbol.</p>
-            <p id="signupError" class="msg msg--error" role="alert" hidden></p>
-            <p id="signupOk" class="msg msg--ok" role="status" hidden></p>
-            <button type="submit" class="btn btn--primary btn--block">Create master account</button>
-          </form>
-          <p class="auth-footer">
-            Already registered?
-            <button type="button" class="link-btn" id="linkToLogin">Go to Log in</button>
-          </p>
-        </div>
-
-        <!-- 2) Log in: only the saved master credentials work -->
-        <div id="loginPanel" class="auth-panel auth-panel--hidden" role="tabpanel">
-          <form id="loginForm" class="form" autocomplete="on">
-            <label class="field">
-              <span class="field__label">Master username</span>
-              <input type="text" id="masterUser" name="username" required placeholder="Enter username" />
-            </label>
-            <label class="field">
-              <span class="field__label">Master password</span>
-              <input type="password" id="masterPass" name="password" required placeholder="Enter password" />
-            </label>
-            <p id="loginSuccess" class="msg msg--ok" role="status" hidden></p>
-            <p id="loginError" class="msg msg--error" role="alert" hidden></p>
-            <button type="submit" class="btn btn--primary btn--block">Sign in</button>
-          </form>
-          <p class="auth-footer">
-            First time here?
-            <button type="button" class="link-btn" id="linkToSignup">Go to Sign up</button>
-          </p>
-        </div>
-      </div>
-
-      <p class="login-meta">Course project · HTML, CSS &amp; JavaScript</p>
+    <div class="actions">
+      <button id="refreshBtn" type="button">Refresh Accounts</button>
     </div>
-  </div>
 
-  <!-- Dashboard -->
-  <div id="dashboardView" class="view view--app view--hidden">
-    <div class="shell">
-      <header class="topbar">
-        <div class="topbar__brand">
-          <span class="brand__icon brand__icon--sm" aria-hidden="true">&#128274;</span>
-          <div class="topbar__text">
-            <h1 class="topbar__title">Vault</h1>
-            <p class="topbar__subtitle">Manage your stored credentials</p>
-          </div>
-        </div>
-        <button type="button" id="logoutBtn" class="btn btn--ghost">Log out</button>
-      </header>
+    <p id="statusText">Loading accounts...</p>
 
-      <main class="main-grid">
-        <section class="card">
-          <span class="card__eyebrow">Create</span>
-          <h2 class="card__heading">Add account</h2>
-          <p class="card__hint">Password must be at least 8 characters with upper, lower, number, and symbol.</p>
-          <form id="addForm" class="form">
-            <label class="field">
-              <span class="field__label">Site name</span>
-              <input type="text" id="accSite" required placeholder="e.g. Gmail" />
-            </label>
-            <label class="field">
-              <span class="field__label">Username</span>
-              <input type="text" id="accUser" required placeholder="Your login" />
-            </label>
-            <label class="field">
-              <span class="field__label">Password</span>
-              <input type="text" id="accPass" minlength="8" placeholder="At least 8 characters" />
-            </label>
-            <div class="row">
-              <button type="button" id="genPassBtn" class="btn btn--secondary">Generate strong password</button>
-              <button type="submit" class="btn btn--primary">Save account</button>
-            </div>
-            <p id="addMsg" class="msg" role="status"></p>
-          </form>
-        </section>
-
-        <section class="card card--wide">
-          <div class="card__wide-head">
-            <div>
-              <span class="card__eyebrow">Overview</span>
-              <h2 class="card__heading">Saved accounts</h2>
-            </div>
-          </div>
-          <p id="accountsEmpty" class="card__hint card__hint--flush">Loading…</p>
-          <ul id="accountsList" class="accounts" aria-live="polite"></ul>
-        </section>
-      </main>
-
-      <footer class="dashboard-footer">
-        <button type="button" id="dashboardLogoutBtn" class="btn btn--ghost btn--block">Logout</button>
-        <p class="dashboard-footer__hint">Return to the login screen</p>
-      </footer>
-    </div>
-  </div>
+    <ul id="accountsList" class="accounts-list"></ul>
+  </main>
 
   <script src="script.js"></script>
 </body>
