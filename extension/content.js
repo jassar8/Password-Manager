@@ -2,18 +2,36 @@
  * content.js
  * Detect login forms, ask user to save on submit,
  * encrypt password with simple XOR, then POST to backend.
+ *
+ * If someone could read your stored accounts (for example from the server,
+ * browser localStorage, or extension storage), the password would still look
+ * like nonsense letters and symbols — not your real password — because we only
+ * save the encrypted form.
+ *
+ * This is simple demonstration encryption (XOR). Real systems use stronger
+ * methods (like AES) and protect the key much more carefully than this demo.
  */
 
 const BACKEND_URL = "http://localhost:3000";
 const XOR_KEY = "K";
 
+/**
+ * Encryption means transforming data so it is hard to read without a secret key.
+ * Passwords are not stored or sent in plain text (readable words); they are
+ * scrambled first. This project uses XOR encryption with one shared key. The
+ * same key is used to encrypt now and to decrypt later on the dashboard.
+ */
 function xorEncrypt(text, key) {
   if (!text) {
     return "";
   }
+  // The key becomes a number so we can XOR it with each character code.
   const keyCode = key.charCodeAt(0);
   let encrypted = "";
   for (let i = 0; i < text.length; i++) {
+    // Each password character is XORed with the key — that mixes the bits.
+    // The output often looks like random junk instead of a real word.
+    // Without knowing the key, someone cannot turn this back into the password.
     encrypted += String.fromCharCode(text.charCodeAt(i) ^ keyCode);
   }
   return encrypted;
@@ -296,9 +314,21 @@ async function sendAccountToBackend(account) {
     keepalive: true,
   });
 
-  if (!response.ok) {
-    throw new Error("Could not save account to backend.");
+  const rawText = await response.text();
+  let data = null;
+  try {
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch (e) {
+    // Non-JSON error page (e.g. connection refused HTML) — keep message simple.
   }
+
+  if (!response.ok) {
+    const serverMsg =
+      data && typeof data.message === "string" ? data.message : "HTTP " + response.status;
+    throw new Error(serverMsg);
+  }
+
+  console.log("extension sent account to backend — " + (account.siteName || "saved site"));
 }
 
 async function findDuplicateAccountOnBackend(websiteUrl) {
@@ -399,8 +429,15 @@ function handleForm(form) {
         try {
           await sendAccountToBackend(account);
         } catch (error) {
-          // Keep it simple: still submit the form even if the backend save fails.
-          console.error("Password Manager:", error.message);
+          const detail = error && error.message ? error.message : String(error);
+          console.error("Password Manager: save failed —", detail);
+          window.alert(
+            "Could not save to your Password Manager backend at " +
+              BACKEND_URL +
+              ".\n\n" +
+              detail +
+              "\n\nStart the server (npm start), then try logging in again."
+          );
         }
       }
 

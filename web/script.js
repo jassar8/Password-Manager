@@ -1,6 +1,14 @@
 /**
  * web/script.js
  * Loads accounts from backend and displays them.
+ *
+ * If someone could read your stored accounts (for example from the server,
+ * browser localStorage, or extension storage), the password would still look
+ * like nonsense letters and symbols — not your real password — because we only
+ * save the encrypted form.
+ *
+ * This is simple demonstration encryption (XOR). Real systems use stronger
+ * methods (like AES) and protect the key much more carefully than this demo.
  */
 
 const BACKEND_URL = "http://localhost:3000";
@@ -15,6 +23,12 @@ function setStatus(message, isError) {
   statusText.style.color = isError ? "#b91c1c" : "#374151";
 }
 
+/**
+ * Decryption is the reverse of encryption: we turn scrambled data back into text.
+ * The stored password is still not plain text until we decrypt it here. This
+ * project uses XOR with the same secret key as encrypt. XOR with the same key
+ * twice gives the original character, so decrypt is the same steps as encrypt.
+ */
 function xorDecrypt(text, key) {
   if (!text) {
     return "";
@@ -22,6 +36,8 @@ function xorDecrypt(text, key) {
   const keyCode = key.charCodeAt(0);
   let out = "";
   for (let i = 0; i < text.length; i++) {
+    // XOR the stored character with the key again — that undoes encryption
+    // and brings back the original password character.
     out += String.fromCharCode(text.charCodeAt(i) ^ keyCode);
   }
   return out;
@@ -71,7 +87,13 @@ function buildAccountCard(account) {
 
   const userLine = document.createElement("div");
   userLine.className = "meta-line";
-  userLine.innerHTML = `<span class="meta-label">Username:</span> ${username}`;
+  const userLabel = document.createElement("span");
+  userLabel.className = "meta-label";
+  userLabel.textContent = "Username:";
+  const userValue = document.createElement("span");
+  userValue.textContent = " " + username;
+  userLine.appendChild(userLabel);
+  userLine.appendChild(userValue);
 
   const passLine = document.createElement("div");
   passLine.className = "meta-line password-row";
@@ -115,14 +137,35 @@ async function loadAccounts() {
   accountsList.innerHTML = "";
 
   try {
-    const response = await fetch(BACKEND_URL + "/accounts");
-    if (!response.ok) {
-      throw new Error("Failed to load accounts.");
+    const response = await fetch(BACKEND_URL + "/accounts", { cache: "no-store" });
+    const rawText = await response.text();
+    let data = null;
+    try {
+      data = rawText ? JSON.parse(rawText) : null;
+    } catch (parseErr) {
+      setStatus(
+        "Backend at " +
+          BACKEND_URL +
+          " returned non-JSON (HTTP " +
+          response.status +
+          "). Is the server running? First line of response: " +
+          rawText.slice(0, 120),
+        true
+      );
+      return;
     }
 
-    const accounts = await response.json();
+    if (!response.ok) {
+      const serverMsg =
+        data && typeof data.message === "string" ? data.message : "HTTP " + response.status;
+      setStatus("Could not load accounts: " + serverMsg, true);
+      return;
+    }
+
+    const accounts = data;
     if (!Array.isArray(accounts) || accounts.length === 0) {
-      setStatus("No saved accounts yet.", false);
+      setStatus("No saved accounts yet. Save a login from the extension, then click Refresh.", false);
+      console.log("accounts loaded — list is empty");
       return;
     }
 
@@ -131,9 +174,16 @@ async function loadAccounts() {
     });
 
     setStatus("Loaded " + accounts.length + " account(s).", false);
+    console.log("accounts loaded — " + accounts.length + " account(s)");
   } catch (error) {
     const msg = error && error.message ? error.message : String(error);
-    setStatus("Could not connect to backend at " + BACKEND_URL + ". " + msg, true);
+    setStatus(
+      "Could not reach backend at " +
+        BACKEND_URL +
+        ". Start the server (npm start), then refresh this page. Details: " +
+        msg,
+      true
+    );
   }
 }
 

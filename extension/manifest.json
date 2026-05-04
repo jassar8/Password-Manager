@@ -4,7 +4,12 @@
   "version": "1.0.0",
   "description": "Detect login forms and send saved accounts to your backend.",
   "permissions": ["tabs"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "http://*/*",
+    "https://*/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Password Manager Connector"

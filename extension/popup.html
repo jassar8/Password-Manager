@@ -50,6 +50,41 @@
       font-size: 12px;
       min-height: 16px;
     }
+    #quickSites {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    #quickSites h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+    .site-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 12px;
+    }
+    .site-row span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .open-site-btn {
+      flex-shrink: 0;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -64,6 +99,13 @@
       <button id="testApiBtn" type="button">Test API</button>
     </div>
     <div id="statusText"></div>
+    <div id="quickSites">
+      <h2>Saved websites</h2>
+      <p id="quickSitesHint" style="font-size: 12px; color: #6b7280; margin: 0 0 8px">
+        Load accounts from the backend, then open a site in a new tab.
+      </p>
+      <div id="quickSitesList"></div>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>
