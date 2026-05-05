@@ -47,8 +47,8 @@
       <p class="hint">Site passwords use the same strong rules as your master password.</p>
       <form id="addAccountForm" class="card stack">
         <label>Site name <input id="addSiteName" type="text" required placeholder="e.g. My Bank" /></label>
-        <label>Website URL <input id="addWebsiteUrl" type="text" required placeholder="https://example.com/login" /></label>
-        <label>Username on site <input id="addAccountUser" type="text" placeholder="optional" /></label>
+        <label>Website URL <input id="addWebsiteUrl" type="text" placeholder="https://example.com/login (optional)" /></label>
+        <label>Username on site <input id="addAccountUser" type="text" required placeholder="e.g. john.doe" /></label>
         <div class="password-field-row">
           <label class="grow">Password on site
             <input id="addAccountPass" type="password" required />
@@ -63,9 +63,29 @@
         <button type="submit" class="btn-primary">Save account</button>
       </form>
 
+      <h2 class="section-title">Simulate login</h2>
+      <form id="simulateLoginForm" class="card stack">
+        <label>Saved site
+          <select id="simulateSiteSelect"></select>
+        </label>
+        <label>Username
+          <input id="simulateUser" type="text" required />
+        </label>
+        <div class="password-field-row">
+          <label class="grow">Password
+            <input id="simulatePass" type="password" required />
+          </label>
+          <button type="button" class="btn-secondary" id="toggleSimulatePass" aria-pressed="false">Show</button>
+        </div>
+        <button type="submit" class="btn-primary">Try Login</button>
+        <p id="simulateMessage" class="message"></p>
+      </form>
+
       <h2 class="section-title">Saved accounts</h2>
+      <p class="hint">Real autofill on external websites requires a browser extension. This project uses redirection and copy buttons as a safe autofill simulation.</p>
       <div class="actions">
         <button type="button" class="btn-primary" id="refreshBtn">Refresh list</button>
+        <button type="button" class="btn-secondary" id="exportCsvBtn">Export to Excel (CSV)</button>
       </div>
       <p id="statusText" class="message">Loading…</p>
       <ul id="accountsList" class="accounts-list"></ul>
