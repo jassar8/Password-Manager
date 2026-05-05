@@ -92,6 +92,66 @@ h1 {
   line-height: 1.2;
 }
 
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.card-action-btn {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.card-action-btn:hover {
+  background: #f9fafb;
+}
+
+.btn-edit {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.btn-edit:hover {
+  background: #eff6ff;
+}
+
+.btn-open {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.btn-open:hover {
+  background: #eff6ff;
+}
+
+.btn-copy {
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.btn-copy:hover {
+  background: #f8fafc;
+}
+
+.btn-delete {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.btn-delete:hover {
+  background: #fef2f2;
+}
+
 .panel {
   margin-bottom: 20px;
 }
@@ -122,6 +182,14 @@ h1 {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 14px;
+}
+
+.stack select {
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #ffffff;
 }
 
 .btn-primary {
