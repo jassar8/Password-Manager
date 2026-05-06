@@ -8,6 +8,7 @@ const XOR_KEY = "K";
 const LS_USERS = "pm_web_users_v1";
 const LS_ACCOUNTS = "pm_web_accounts_map_v1";
 const LS_SESSION = "pm_web_session_v1";
+const LS_THEME = "pm_web_theme_v1";
 
 // --- Page elements ---
 const authSection = document.getElementById("authSection");
@@ -27,6 +28,7 @@ const toggleSignupPass2 = document.getElementById("toggleSignupPass2");
 const goSignup = document.getElementById("goSignup");
 const goLogin = document.getElementById("goLogin");
 const logoutBtn = document.getElementById("logoutBtn");
+const themeToggleBtn = document.getElementById("themeToggleBtn");
 const toggleChangeMasterBtn = document.getElementById("toggleChangeMasterBtn");
 const changeMasterForm = document.getElementById("changeMasterForm");
 const currentMasterPass = document.getElementById("currentMasterPass");
@@ -46,7 +48,9 @@ const simulateMessage = document.getElementById("simulateMessage");
 const refreshBtn = document.getElementById("refreshBtn");
 const exportCsvBtn = document.getElementById("exportCsvBtn");
 const statusText = document.getElementById("statusText");
+const noResultsText = document.getElementById("noResultsText");
 const accountsList = document.getElementById("accountsList");
+const accountSearchInput = document.getElementById("accountSearchInput");
 const addSiteName = document.getElementById("addSiteName");
 const addWebsiteUrl = document.getElementById("addWebsiteUrl");
 const addAccountUser = document.getElementById("addAccountUser");
@@ -60,6 +64,16 @@ const generatedPassPreview = document.getElementById("generatedPassPreview");
 let currentUsername = null;
 // Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
+
+// Known website icons for common services. Falls back to globe when unknown.
+const KNOWN_SITE_ICONS = {
+  google: "G",
+  facebook: "f",
+  amazon: "a",
+  github: "{}",
+  youtube: "▶",
+  netflix: "N",
+};
 
 // --- Small UI helpers ---
 // Generic message helper used by all feedback areas (auth, status, simulate, settings).
@@ -87,6 +101,78 @@ function setSimulateMessage(message, isError) {
 
 function setChangeMasterMessage(message, isError) {
   setMessageState(changeMasterMessage, message, isError);
+}
+
+// --- Theme helpers (light/dark) ---
+function getSavedTheme() {
+  const savedTheme = localStorage.getItem(LS_THEME);
+  return savedTheme === "dark" ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  const isDark = theme === "dark";
+  document.body.classList.toggle("theme-dark", isDark);
+  if (themeToggleBtn) {
+    themeToggleBtn.textContent = isDark ? "Light Mode" : "Dark Mode";
+    themeToggleBtn.setAttribute("aria-pressed", isDark ? "true" : "false");
+  }
+}
+
+function saveTheme(theme) {
+  localStorage.setItem(LS_THEME, theme === "dark" ? "dark" : "light");
+}
+
+function toggleTheme() {
+  const nextTheme = document.body.classList.contains("theme-dark") ? "light" : "dark";
+  saveTheme(nextTheme);
+  applyTheme(nextTheme);
+}
+
+function getPasswordStrengthInfo(password) {
+  const value = String(password || "");
+  const checks = {
+    hasUppercase: /[A-Z]/.test(value),
+    hasLowercase: /[a-z]/.test(value),
+    hasNumber: /[0-9]/.test(value),
+    hasSymbol: /[^A-Za-z0-9]/.test(value),
+    hasLength: value.length >= 8,
+  };
+  const score = Object.values(checks).filter(Boolean).length;
+
+  if (!value) {
+    return { label: "", level: "none", checks: checks };
+  }
+  if (score === 5) {
+    return { label: "Strong", level: "strong", checks: checks };
+  }
+  if (score >= 3) {
+    return { label: "Medium", level: "medium", checks: checks };
+  }
+  return { label: "Weak", level: "weak", checks: checks };
+}
+
+function createPasswordStrengthMeter(input) {
+  if (!input) {
+    return;
+  }
+
+  const meter = document.createElement("p");
+  meter.className = "password-strength";
+  meter.setAttribute("aria-live", "polite");
+
+  const updateMeter = function () {
+    const info = getPasswordStrengthInfo(input.value);
+    meter.textContent = info.label ? "Strength: " + info.label : "";
+    meter.classList.remove("weak", "medium", "strong");
+    if (info.level !== "none") {
+      meter.classList.add(info.level);
+    }
+  };
+
+  const targetContainer = input.closest(".password-field-row") || input.parentElement;
+  targetContainer.insertAdjacentElement("afterend", meter);
+  input.addEventListener("input", updateMeter);
+  updateMeter();
 }
 
 function resetChangeMasterPasswordVisibility() {
@@ -418,6 +504,14 @@ function downloadAccountsCsv() {
   setStatus("Exported " + accounts.length + " account(s) to accounts.csv", false);
 }
 
+function getWebsiteIcon(siteName, normalizedWebsite) {
+  const source = ((siteName || "") + " " + (normalizedWebsite || "")).toLowerCase();
+  const iconKey = Object.keys(KNOWN_SITE_ICONS).find(function (key) {
+    return source.indexOf(key) >= 0;
+  });
+  return iconKey ? KNOWN_SITE_ICONS[iconKey] : "🌐";
+}
+
 // --- Build one row in the saved accounts list ---
 // Real autofill on external websites needs a browser extension.
 // This web app uses safe redirection + copy buttons as autofill simulation.
@@ -426,15 +520,23 @@ function buildAccountCard(account) {
   li.className = "account-card";
   const siteName = account.siteName || "Unknown site";
   const websiteUrl = safeUrl(account.websiteUrl);
+  const normalizedWebsite = account.normalizedWebsite || normalizeUrl(account.websiteUrl);
   const username =
     account.username != null && account.username !== "" ? account.username : "-";
   const encryptedPassword = account.encryptedPassword || "";
   // Decrypt only in memory for UI display/copy actions.
   const decryptedPassword = xorDecrypt(encryptedPassword, XOR_KEY);
 
+  const cardHeader = document.createElement("div");
+  cardHeader.className = "account-header";
+  const icon = document.createElement("span");
+  icon.className = "site-icon";
+  icon.textContent = getWebsiteIcon(siteName, normalizedWebsite);
   const title = document.createElement("div");
   title.className = "site-name";
   title.textContent = siteName;
+  cardHeader.appendChild(icon);
+  cardHeader.appendChild(title);
 
   const urlLine = document.createElement("div");
   urlLine.className = "meta-line";
@@ -568,12 +670,27 @@ function buildAccountCard(account) {
   actionsRow.appendChild(editBtn);
   actionsRow.appendChild(deleteBtn);
 
-  li.appendChild(title);
+  li.appendChild(cardHeader);
   li.appendChild(urlLine);
   li.appendChild(userLine);
   li.appendChild(passLine);
   li.appendChild(actionsRow);
   return li;
+}
+
+function accountMatchesSearch(account, query) {
+  if (!query) {
+    return true;
+  }
+  const haystack = [
+    account.siteName || "",
+    account.username || "",
+    account.websiteUrl || "",
+    account.normalizedWebsite || normalizeUrl(account.websiteUrl),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.indexOf(query) >= 0;
 }
 
 // --- Delete one account and refresh list ---
@@ -718,13 +835,27 @@ function loadAccounts() {
   const accounts = getAccountsForUser(currentUsername);
   refreshSimulateSiteOptions(accounts);
   if (accounts.length === 0) {
+    noResultsText.classList.add("hidden");
     setStatus("No saved accounts yet. Add one above.", false);
     return;
   }
-  accounts.forEach(function (account) {
+  const searchQuery = (accountSearchInput.value || "").trim().toLowerCase();
+  const filteredAccounts = accounts.filter(function (account) {
+    return accountMatchesSearch(account, searchQuery);
+  });
+  if (filteredAccounts.length === 0) {
+    noResultsText.classList.remove("hidden");
+    setStatus("Showing 0 of " + accounts.length + " account(s).", false);
+    return;
+  }
+  noResultsText.classList.add("hidden");
+  filteredAccounts.forEach(function (account) {
     accountsList.appendChild(buildAccountCard(account));
   });
-  setStatus("Showing " + accounts.length + " account(s) from localStorage.", false);
+  setStatus(
+    "Showing " + filteredAccounts.length + " of " + accounts.length + " account(s) from localStorage.",
+    false
+  );
 }
 
 // --- Switch between login screen and main app ---
@@ -748,6 +879,10 @@ function showAuth() {
   setStatus("", false);
   setSimulateMessage("", false);
   setChangeMasterMessage("", false);
+  if (accountSearchInput) {
+    accountSearchInput.value = "";
+  }
+  noResultsText.classList.add("hidden");
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
   resetChangeMasterPasswordVisibility();
@@ -760,6 +895,8 @@ function showApp(username) {
   authSection.classList.add("hidden");
   appSection.classList.remove("hidden");
   sessionUserEl.textContent = username;
+  accountSearchInput.value = "";
+  noResultsText.classList.add("hidden");
   addAccountForm.reset();
   generatedPassPreview.hidden = true;
   lastGeneratedPassword = "";
@@ -1053,6 +1190,15 @@ exportCsvBtn.addEventListener("click", function () {
   downloadAccountsCsv();
 });
 
+// Live search instantly filters cards by site name, username, or URL.
+accountSearchInput.addEventListener("input", function () {
+  loadAccounts();
+});
+
+themeToggleBtn.addEventListener("click", function () {
+  toggleTheme();
+});
+
 simulateLoginForm.addEventListener("submit", function (e) {
   e.preventDefault();
   if (!currentUsername) {
@@ -1115,6 +1261,7 @@ btnFillGenerated.addEventListener("click", function () {
   addAccountPass.type = "text";
   toggleAddPass.textContent = "Hide";
   toggleAddPass.setAttribute("aria-pressed", "true");
+  addAccountPass.dispatchEvent(new Event("input"));
 });
 
 addAccountForm.addEventListener("submit", function (e) {
@@ -1186,4 +1333,8 @@ addAccountForm.addEventListener("submit", function (e) {
 });
 
 // App entry point: try restoring previous session, otherwise show auth page.
+createPasswordStrengthMeter(signupPass);
+createPasswordStrengthMeter(addAccountPass);
+createPasswordStrengthMeter(newMasterPass);
+applyTheme(getSavedTheme());
 tryResumeSession();

@@ -62,7 +62,10 @@
           <p class="welcome-label">Dashboard</p>
           <p class="welcome">Signed in as <strong id="sessionUser"></strong></p>
         </div>
-        <button type="button" class="btn-secondary" id="logoutBtn">Log out</button>
+        <div class="top-actions">
+          <button type="button" class="btn-secondary" id="themeToggleBtn" aria-pressed="false">Dark Mode</button>
+          <button type="button" class="btn-secondary" id="logoutBtn">Log out</button>
+        </div>
       </div>
 
       <h2 class="section-title">Settings</h2>
@@ -134,11 +137,21 @@
 
       <h2 class="section-title">Saved accounts</h2>
       <p class="hint">Real autofill on external websites requires a browser extension. This project uses redirection and copy buttons as a safe autofill simulation.</p>
+      <div class="card form-card search-card">
+        <label class="search-label" for="accountSearchInput">Search saved accounts</label>
+        <input
+          id="accountSearchInput"
+          type="text"
+          placeholder="Search by site, username, or URL..."
+          autocomplete="off"
+        />
+      </div>
       <div class="actions">
         <button type="button" class="btn-primary" id="refreshBtn">Refresh list</button>
         <button type="button" class="btn-secondary" id="exportCsvBtn">Export to Excel (CSV)</button>
       </div>
       <p id="statusText" class="message">Loading…</p>
+      <p id="noResultsText" class="hint no-results hidden">No matching accounts found</p>
       <ul id="accountsList" class="accounts-list"></ul>
     </section>
   </main>
