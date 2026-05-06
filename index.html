@@ -13,7 +13,7 @@
       <p class="subtitle">Offline-first project using localStorage, encryption demo, and strong password rules.</p>
     </header>
 
-    <section id="authPanel" class="panel auth-panel">
+    <section id="authSection" class="panel auth-panel">
       <div class="auth-card card">
       <div id="loginBlock">
         <h2>Log in</h2>
@@ -56,7 +56,7 @@
       </div>
     </section>
 
-    <section id="appPanel" class="panel" hidden>
+    <section id="appSection" class="panel hidden">
       <div class="app-header card">
         <div>
           <p class="welcome-label">Dashboard</p>
@@ -71,15 +71,24 @@
           🔐 Change Master Password
         </button>
         <form id="changeMasterForm" class="stack" hidden novalidate>
-          <label>Current master password
-            <input id="currentMasterPass" type="password" autocomplete="current-password" required />
-          </label>
-          <label>New master password
-            <input id="newMasterPass" type="password" autocomplete="new-password" required />
-          </label>
-          <label>Confirm new master password
-            <input id="confirmMasterPass" type="password" autocomplete="new-password" required />
-          </label>
+          <div class="password-field-row">
+            <label class="grow">Current master password
+              <input id="currentMasterPass" type="password" autocomplete="current-password" required />
+            </label>
+            <button type="button" class="btn-secondary eye-toggle" id="toggleCurrentMasterPass" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
+          <div class="password-field-row">
+            <label class="grow">New master password
+              <input id="newMasterPass" type="password" autocomplete="new-password" required />
+            </label>
+            <button type="button" class="btn-secondary eye-toggle" id="toggleNewMasterPass" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
+          <div class="password-field-row">
+            <label class="grow">Confirm new master password
+              <input id="confirmMasterPass" type="password" autocomplete="new-password" required />
+            </label>
+            <button type="button" class="btn-secondary eye-toggle" id="toggleConfirmMasterPass" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
           <button type="submit" class="btn-primary">Update Master Password</button>
         </form>
         <p id="changeMasterMessage" class="message"></p>

@@ -10,8 +10,8 @@ const LS_ACCOUNTS = "pm_web_accounts_map_v1";
 const LS_SESSION = "pm_web_session_v1";
 
 // --- Page elements ---
-const authPanel = document.getElementById("authPanel");
-const appPanel = document.getElementById("appPanel");
+const authSection = document.getElementById("authSection");
+const appSection = document.getElementById("appSection");
 const loginBlock = document.getElementById("loginBlock");
 const signupBlock = document.getElementById("signupBlock");
 const authMessage = document.getElementById("authMessage");
@@ -32,6 +32,9 @@ const changeMasterForm = document.getElementById("changeMasterForm");
 const currentMasterPass = document.getElementById("currentMasterPass");
 const newMasterPass = document.getElementById("newMasterPass");
 const confirmMasterPass = document.getElementById("confirmMasterPass");
+const toggleCurrentMasterPass = document.getElementById("toggleCurrentMasterPass");
+const toggleNewMasterPass = document.getElementById("toggleNewMasterPass");
+const toggleConfirmMasterPass = document.getElementById("toggleConfirmMasterPass");
 const changeMasterMessage = document.getElementById("changeMasterMessage");
 const addAccountForm = document.getElementById("addAccountForm");
 const simulateLoginForm = document.getElementById("simulateLoginForm");
@@ -53,10 +56,14 @@ const btnGeneratePass = document.getElementById("btnGeneratePass");
 const btnFillGenerated = document.getElementById("btnFillGenerated");
 const generatedPassPreview = document.getElementById("generatedPassPreview");
 
+// Stores the currently logged-in username in memory while the page is open.
 let currentUsername = null;
+// Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
 
 // --- Small UI helpers ---
+// Generic message helper used by all feedback areas (auth, status, simulate, settings).
+// It also adds a success/error CSS class so UI colors are consistent.
 function setMessageState(element, text, isError) {
   element.textContent = text || "";
   element.classList.remove("success", "error");
@@ -82,7 +89,24 @@ function setChangeMasterMessage(message, isError) {
   setMessageState(changeMasterMessage, message, isError);
 }
 
+function resetChangeMasterPasswordVisibility() {
+  currentMasterPass.type = "password";
+  newMasterPass.type = "password";
+  confirmMasterPass.type = "password";
+  toggleCurrentMasterPass.textContent = "Show";
+  toggleCurrentMasterPass.setAttribute("aria-pressed", "false");
+  toggleCurrentMasterPass.setAttribute("aria-label", "Show password");
+  toggleNewMasterPass.textContent = "Show";
+  toggleNewMasterPass.setAttribute("aria-pressed", "false");
+  toggleNewMasterPass.setAttribute("aria-label", "Show password");
+  toggleConfirmMasterPass.textContent = "Show";
+  toggleConfirmMasterPass.setAttribute("aria-pressed", "false");
+  toggleConfirmMasterPass.setAttribute("aria-label", "Show password");
+}
+
 // --- localStorage read/write (JSON) ---
+// Read and parse JSON from localStorage safely.
+// If key does not exist OR parsing fails, return fallback value.
 function readJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -100,15 +124,26 @@ function writeJson(key, value) {
 }
 
 // --- Users (sign up / log in) ---
-// Stores a simple hash so the real master password is not saved in plain text.
+// Convert master password to a deterministic hash string.
+// IMPORTANT:
+// - This is a simple demo hash (DJB2-style with XOR), not a modern secure password hash.
+// - We include normalized username in the hash input, so same password on different users
+//   produces a different final hash.
 function hashMasterPassword(username, password) {
+  // 1) Normalize username so "Ali" and "ali" behave the same.
   const key = String(username).trim().toLowerCase();
+  // 2) Build one input string that includes username + separator + password.
+  //    '\0' helps avoid accidental collisions like ("ab","c") vs ("a","bc").
   const s = key + "\0" + password;
+  // 3) Start with seed number used by DJB2 family hashes.
   var h = 5381;
+  // 4) For each character, update hash using bit operations.
   for (var i = 0; i < s.length; i++) {
     h = ((h << 5) + h) ^ s.charCodeAt(i);
+    // Force 32-bit signed integer range.
     h |= 0;
   }
+  // 5) Convert to unsigned hex and prefix with username key.
   return key + ":" + (h >>> 0).toString(16);
 }
 
@@ -160,6 +195,12 @@ function setAccountsForUser(username, accounts) {
 }
 
 // --- XOR demo encryption (same key encrypts and decrypts) ---
+// Encrypt text with a 1-character XOR key.
+// Step-by-step:
+// 1) Convert key character to its ASCII/Unicode number.
+// 2) For every text character, XOR charCode with keyCode.
+// 3) Convert result back to character and append to output.
+// NOTE: XOR is for demo/learning only and not secure for real production encryption.
 function xorEncrypt(text, key) {
   if (!text) {
     return "";
@@ -172,11 +213,14 @@ function xorEncrypt(text, key) {
   return out;
 }
 
+// Decryption for XOR uses the exact same operation:
+// applying XOR with the same key a second time restores original text.
 function xorDecrypt(text, key) {
   return xorEncrypt(text, key);
 }
 
 // --- Strong password: 8+, lower, upper, digit, symbol ---
+// Returns true only if password matches all required strength rules.
 function isStrongPassword(password) {
   if (!password || password.length < 8) {
     return false;
@@ -201,6 +245,7 @@ function isStrongPassword(password) {
 }
 
 function generateStrongPassword() {
+  // Build from character groups so we can guarantee rule coverage.
   var lower = "abcdefghijklmnopqrstuvwxyz";
   var upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   var numbers = "0123456789";
@@ -208,6 +253,7 @@ function generateStrongPassword() {
   var all = lower + upper + numbers + symbols;
   var targetLength = 14;
   var chars = [];
+  // Guarantee at least one character from each required group.
   chars.push(lower[Math.floor(Math.random() * lower.length)]);
   chars.push(upper[Math.floor(Math.random() * upper.length)]);
   chars.push(numbers[Math.floor(Math.random() * numbers.length)]);
@@ -215,6 +261,7 @@ function generateStrongPassword() {
   while (chars.length < targetLength) {
     chars.push(all[Math.floor(Math.random() * all.length)]);
   }
+  // Shuffle so guaranteed characters are not always in first positions.
   for (var i = chars.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
     var temp = chars[i];
@@ -246,6 +293,7 @@ function createDemoAccount(template, idx) {
     siteName: template.siteName,
     websiteUrl: template.websiteUrl,
     username: template.username,
+    // Save encrypted password (not plain text) in localStorage record.
     encryptedPassword: xorEncrypt(plainPassword, XOR_KEY),
     normalizedWebsite: normalizeUrl(template.websiteUrl),
   };
@@ -298,10 +346,12 @@ function normalizeUrl(rawUrl) {
     return "";
   }
   try {
+    // Try URL parser first for reliable hostname extraction.
     const withScheme = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
     const parsed = new URL(withScheme);
     return parsed.hostname.replace(/^www\./, "");
   } catch (e) {
+    // Fallback for invalid URL strings: best-effort cleanup.
     return raw
       .replace(/^https?:\/\//i, "")
       .replace(/^www\./i, "")
@@ -379,6 +429,7 @@ function buildAccountCard(account) {
   const username =
     account.username != null && account.username !== "" ? account.username : "-";
   const encryptedPassword = account.encryptedPassword || "";
+  // Decrypt only in memory for UI display/copy actions.
   const decryptedPassword = xorDecrypt(encryptedPassword, XOR_KEY);
 
   const title = document.createElement("div");
@@ -561,6 +612,7 @@ function editAccount(accountId) {
   const currentSiteName = account.siteName || "";
   const currentWebsiteUrl = account.websiteUrl || "";
   const currentUsernameOnSite = account.username || "";
+  // Convert encrypted stored value back to plain text so user can edit it.
   const currentPassword = xorDecrypt(account.encryptedPassword || "", XOR_KEY);
 
   const nextSiteNameInput = window.prompt("Edit site name:", currentSiteName);
@@ -662,6 +714,7 @@ function loadAccounts() {
     return;
   }
   accountsList.innerHTML = "";
+  // Always read fresh account data from localStorage before rendering.
   const accounts = getAccountsForUser(currentUsername);
   refreshSimulateSiteOptions(accounts);
   if (accounts.length === 0) {
@@ -676,9 +729,10 @@ function loadAccounts() {
 
 // --- Switch between login screen and main app ---
 function showAuth() {
+  // Auth-page mode: show only Login/Sign Up blocks and hide full dashboard/app panel.
   currentUsername = null;
-  appPanel.hidden = true;
-  authPanel.hidden = false;
+  appSection.classList.add("hidden");
+  authSection.classList.remove("hidden");
   loginBlock.hidden = false;
   signupBlock.hidden = true;
   loginPass.type = "password";
@@ -696,13 +750,15 @@ function showAuth() {
   setChangeMasterMessage("", false);
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
+  resetChangeMasterPasswordVisibility();
 }
 
 function showApp(username) {
+  // App-page mode: hide auth panel and show dashboard sections only after sign-in.
   currentUsername = username;
   setSession(username);
-  authPanel.hidden = true;
-  appPanel.hidden = false;
+  authSection.classList.add("hidden");
+  appSection.classList.remove("hidden");
   sessionUserEl.textContent = username;
   addAccountForm.reset();
   generatedPassPreview.hidden = true;
@@ -718,6 +774,7 @@ function showApp(username) {
   setChangeMasterMessage("", false);
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
+  resetChangeMasterPasswordVisibility();
   const addedDemoCount = ensureMinimumDemoAccounts(username);
   if (addedDemoCount > 0) {
     setStatus("Added " + addedDemoCount + " demo account(s) to reach 10 total.", false);
@@ -738,14 +795,15 @@ function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
     return { ok: false, message: "Could not find your user record." };
   }
 
-  // Verify the current password against the saved hash.
+  // Verify current password:
+  // user input -> hashMasterPassword -> must match saved hash in localStorage.
   const expectedHash = users[userIndex].passwordHash;
   const currentHash = hashMasterPassword(users[userIndex].username, currentPass);
   if (currentHash !== expectedHash) {
     return { ok: false, message: "Current master password is incorrect." };
   }
 
-  // Validate strength and confirmation before saving.
+  // Validate new password strength before saving.
   if (!isStrongPassword(nextPass)) {
     return {
       ok: false,
@@ -754,13 +812,15 @@ function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
     };
   }
 
-  // Save only the new hash. Accounts are stored separately and remain untouched.
+  // Save only new master hash.
+  // Account records are in a separate key (LS_ACCOUNTS), so they are not deleted here.
   users[userIndex].passwordHash = hashMasterPassword(users[userIndex].username, nextPass);
   saveUsers(users);
   return { ok: true, message: "Master password updated successfully" };
 }
 
 function tryResumeSession() {
+  // On page load, re-open app if session username still exists in users list.
   const sessionUser = getSession();
   if (!sessionUser) {
     showAuth();
@@ -779,6 +839,7 @@ function tryResumeSession() {
 }
 
 // --- Event wiring ---
+// Toggle between login and signup blocks.
 goSignup.addEventListener("click", function () {
   loginBlock.hidden = true;
   signupBlock.hidden = false;
@@ -828,6 +889,31 @@ toggleSignupPass2.addEventListener("click", function () {
   toggleSignupPass2.setAttribute("aria-pressed", show ? "true" : "false");
 });
 
+// Show/hide buttons for Change Master Password inputs.
+toggleCurrentMasterPass.addEventListener("click", function () {
+  const show = currentMasterPass.type === "password";
+  currentMasterPass.type = show ? "text" : "password";
+  toggleCurrentMasterPass.textContent = show ? "Hide" : "Show";
+  toggleCurrentMasterPass.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleCurrentMasterPass.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
+toggleNewMasterPass.addEventListener("click", function () {
+  const show = newMasterPass.type === "password";
+  newMasterPass.type = show ? "text" : "password";
+  toggleNewMasterPass.textContent = show ? "Hide" : "Show";
+  toggleNewMasterPass.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleNewMasterPass.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
+toggleConfirmMasterPass.addEventListener("click", function () {
+  const show = confirmMasterPass.type === "password";
+  confirmMasterPass.type = show ? "text" : "password";
+  toggleConfirmMasterPass.textContent = show ? "Hide" : "Show";
+  toggleConfirmMasterPass.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleConfirmMasterPass.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
 toggleChangeMasterBtn.addEventListener("click", function () {
   const shouldShow = changeMasterForm.hidden;
   changeMasterForm.hidden = !shouldShow;
@@ -836,6 +922,7 @@ toggleChangeMasterBtn.addEventListener("click", function () {
     currentMasterPass.focus();
   } else {
     changeMasterForm.reset();
+    resetChangeMasterPasswordVisibility();
     setChangeMasterMessage("", false);
   }
 });
@@ -859,10 +946,10 @@ changeMasterForm.addEventListener("submit", function (e) {
     return;
   }
 
-  // Beginner-friendly flow:
-  // 1) Check current password hash
+  // Beginner-friendly update flow:
+  // 1) Check current password by hash comparison
   // 2) Validate new password strength
-  // 3) Save new hash to localStorage users list
+  // 3) Save new hash to users storage
   const result = updateMasterPasswordForCurrentUser(currentPass, nextPass);
   setChangeMasterMessage(result.message, !result.ok);
   if (!result.ok) {
@@ -873,6 +960,7 @@ changeMasterForm.addEventListener("submit", function (e) {
   setSession(currentUsername);
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
+  resetChangeMasterPasswordVisibility();
 });
 
 loginForm.addEventListener("submit", function (e) {
@@ -887,6 +975,7 @@ loginForm.addEventListener("submit", function (e) {
     setAuthMessage("Enter your master password.", true);
     return;
   }
+  // Log in check: hash entered password and compare with saved hash.
   const hash = hashMasterPassword(username, password);
   const users = getUsers();
   const found = users.find(function (u) {
@@ -933,6 +1022,7 @@ signupForm.addEventListener("submit", function (e) {
   }
   const newUser = {
     username: username,
+    // Store password hash only (never raw master password).
     passwordHash: hashMasterPassword(username, pass),
   };
   const nextUsers = users.concat([newUser]);
@@ -983,6 +1073,7 @@ simulateLoginForm.addEventListener("submit", function (e) {
   }
 
   const savedUsername = (selectedAccount.username || "").trim();
+  // Simulate login compares typed password to decrypted stored site password.
   const savedPassword = xorDecrypt(selectedAccount.encryptedPassword || "", XOR_KEY);
   const isMatch = enteredUsername === savedUsername && enteredPassword === savedPassword;
 
@@ -1063,6 +1154,7 @@ addAccountForm.addEventListener("submit", function (e) {
     siteName: siteName,
     websiteUrl: websiteUrl,
     username: username,
+    // Encrypt site password before writing to storage.
     encryptedPassword: xorEncrypt(password, XOR_KEY),
     normalizedWebsite: normalizedWebsite,
   };
@@ -1093,4 +1185,5 @@ addAccountForm.addEventListener("submit", function (e) {
   loadAccounts();
 });
 
+// App entry point: try restoring previous session, otherwise show auth page.
 tryResumeSession();
