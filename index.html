@@ -8,15 +8,23 @@
 </head>
 <body>
   <main class="container">
-    <h1>Password Manager</h1>
-    <p class="subtitle">Works offline — data stays in this browser (localStorage only).</p>
+    <header class="hero">
+      <h1>Secure Password Manager</h1>
+      <p class="subtitle">Offline-first project using localStorage, encryption demo, and strong password rules.</p>
+    </header>
 
-    <section id="authPanel" class="panel card">
+    <section id="authPanel" class="panel auth-panel">
+      <div class="auth-card card">
       <div id="loginBlock">
         <h2>Log in</h2>
         <form id="loginForm" class="stack" novalidate>
           <label>Username <input id="loginUser" type="text" autocomplete="username" required /></label>
-          <label>Master password <input id="loginPass" type="password" autocomplete="current-password" required /></label>
+          <div class="password-field-row">
+            <label class="grow">Master password
+              <input id="loginPass" type="password" autocomplete="current-password" required />
+            </label>
+            <button type="button" class="btn-secondary eye-toggle" id="toggleLoginPass" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
           <button type="submit" class="btn-primary">Log in</button>
         </form>
         <p class="hint">No account? <button type="button" class="link-btn" id="goSignup">Sign up</button></p>
@@ -27,25 +35,59 @@
         <p class="hint">Master password: 8+ characters with lowercase, uppercase, number, and symbol.</p>
         <form id="signupForm" class="stack" novalidate>
           <label>Username <input id="signupUser" type="text" autocomplete="username" required /></label>
-          <label>Master password <input id="signupPass" type="password" autocomplete="new-password" required /></label>
-          <label>Confirm password <input id="signupPass2" type="password" autocomplete="new-password" required /></label>
+          <div class="password-field-row">
+            <label class="grow">Master password
+              <input id="signupPass" type="password" autocomplete="new-password" required />
+            </label>
+            <button type="button" class="btn-secondary eye-toggle" id="toggleSignupPass" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
+          <div class="password-field-row">
+            <label class="grow">Confirm password
+              <input id="signupPass2" type="password" autocomplete="new-password" required />
+            </label>
+            <button type="button" class="btn-secondary eye-toggle" id="toggleSignupPass2" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
           <button type="submit" class="btn-primary">Create account</button>
         </form>
         <p class="hint">Already have an account? <button type="button" class="link-btn" id="goLogin">Log in</button></p>
       </div>
 
       <p id="authMessage" class="message auth-feedback" aria-live="polite"></p>
+      </div>
     </section>
 
     <section id="appPanel" class="panel" hidden>
-      <div class="app-header">
-        <p class="welcome">Signed in as <strong id="sessionUser"></strong></p>
+      <div class="app-header card">
+        <div>
+          <p class="welcome-label">Dashboard</p>
+          <p class="welcome">Signed in as <strong id="sessionUser"></strong></p>
+        </div>
         <button type="button" class="btn-secondary" id="logoutBtn">Log out</button>
+      </div>
+
+      <h2 class="section-title">Settings</h2>
+      <div class="card stack settings-card form-card">
+        <button type="button" class="btn-secondary settings-btn" id="toggleChangeMasterBtn">
+          🔐 Change Master Password
+        </button>
+        <form id="changeMasterForm" class="stack" hidden novalidate>
+          <label>Current master password
+            <input id="currentMasterPass" type="password" autocomplete="current-password" required />
+          </label>
+          <label>New master password
+            <input id="newMasterPass" type="password" autocomplete="new-password" required />
+          </label>
+          <label>Confirm new master password
+            <input id="confirmMasterPass" type="password" autocomplete="new-password" required />
+          </label>
+          <button type="submit" class="btn-primary">Update Master Password</button>
+        </form>
+        <p id="changeMasterMessage" class="message"></p>
       </div>
 
       <h2 class="section-title">Add saved account</h2>
       <p class="hint">Site passwords use the same strong rules as your master password.</p>
-      <form id="addAccountForm" class="card stack">
+      <form id="addAccountForm" class="card stack form-card">
         <label>Site name <input id="addSiteName" type="text" required placeholder="e.g. My Bank" /></label>
         <label>Website URL <input id="addWebsiteUrl" type="text" placeholder="https://example.com/login (optional)" /></label>
         <label>Username on site <input id="addAccountUser" type="text" required placeholder="e.g. john.doe" /></label>
@@ -53,7 +95,7 @@
           <label class="grow">Password on site
             <input id="addAccountPass" type="password" required />
           </label>
-          <button type="button" class="btn-secondary" id="toggleAddPass" aria-pressed="false">Show</button>
+          <button type="button" class="btn-secondary eye-toggle" id="toggleAddPass" aria-pressed="false">Show</button>
         </div>
         <div class="gen-row">
           <button type="button" class="btn-secondary" id="btnGeneratePass">Generate strong password</button>
@@ -64,7 +106,7 @@
       </form>
 
       <h2 class="section-title">Simulate login</h2>
-      <form id="simulateLoginForm" class="card stack">
+      <form id="simulateLoginForm" class="card stack form-card">
         <label>Saved site
           <select id="simulateSiteSelect"></select>
         </label>
@@ -75,7 +117,7 @@
           <label class="grow">Password
             <input id="simulatePass" type="password" required />
           </label>
-          <button type="button" class="btn-secondary" id="toggleSimulatePass" aria-pressed="false">Show</button>
+          <button type="button" class="btn-secondary eye-toggle" id="toggleSimulatePass" aria-pressed="false">Show</button>
         </div>
         <button type="submit" class="btn-primary">Try Login</button>
         <p id="simulateMessage" class="message"></p>

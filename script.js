@@ -18,9 +18,21 @@ const authMessage = document.getElementById("authMessage");
 const sessionUserEl = document.getElementById("sessionUser");
 const loginForm = document.getElementById("loginForm");
 const signupForm = document.getElementById("signupForm");
+const loginPass = document.getElementById("loginPass");
+const signupPass = document.getElementById("signupPass");
+const signupPass2 = document.getElementById("signupPass2");
+const toggleLoginPass = document.getElementById("toggleLoginPass");
+const toggleSignupPass = document.getElementById("toggleSignupPass");
+const toggleSignupPass2 = document.getElementById("toggleSignupPass2");
 const goSignup = document.getElementById("goSignup");
 const goLogin = document.getElementById("goLogin");
 const logoutBtn = document.getElementById("logoutBtn");
+const toggleChangeMasterBtn = document.getElementById("toggleChangeMasterBtn");
+const changeMasterForm = document.getElementById("changeMasterForm");
+const currentMasterPass = document.getElementById("currentMasterPass");
+const newMasterPass = document.getElementById("newMasterPass");
+const confirmMasterPass = document.getElementById("confirmMasterPass");
+const changeMasterMessage = document.getElementById("changeMasterMessage");
 const addAccountForm = document.getElementById("addAccountForm");
 const simulateLoginForm = document.getElementById("simulateLoginForm");
 const simulateSiteSelect = document.getElementById("simulateSiteSelect");
@@ -45,19 +57,29 @@ let currentUsername = null;
 let lastGeneratedPassword = "";
 
 // --- Small UI helpers ---
+function setMessageState(element, text, isError) {
+  element.textContent = text || "";
+  element.classList.remove("success", "error");
+  if (!text) {
+    return;
+  }
+  element.classList.add(isError ? "error" : "success");
+}
+
 function setAuthMessage(text, isError) {
-  authMessage.textContent = text || "";
-  authMessage.style.color = isError ? "#b91c1c" : "#374151";
+  setMessageState(authMessage, text, isError);
 }
 
 function setStatus(message, isError) {
-  statusText.textContent = message;
-  statusText.style.color = isError ? "#b91c1c" : "#374151";
+  setMessageState(statusText, message, isError);
 }
 
 function setSimulateMessage(message, isError) {
-  simulateMessage.textContent = message || "";
-  simulateMessage.style.color = isError ? "#b91c1c" : "#15803d";
+  setMessageState(simulateMessage, message, isError);
+}
+
+function setChangeMasterMessage(message, isError) {
+  setMessageState(changeMasterMessage, message, isError);
 }
 
 // --- localStorage read/write (JSON) ---
@@ -659,9 +681,21 @@ function showAuth() {
   authPanel.hidden = false;
   loginBlock.hidden = false;
   signupBlock.hidden = true;
+  loginPass.type = "password";
+  signupPass.type = "password";
+  signupPass2.type = "password";
+  toggleLoginPass.textContent = "Show";
+  toggleLoginPass.setAttribute("aria-pressed", "false");
+  toggleSignupPass.textContent = "Show";
+  toggleSignupPass.setAttribute("aria-pressed", "false");
+  toggleSignupPass2.textContent = "Show";
+  toggleSignupPass2.setAttribute("aria-pressed", "false");
   setAuthMessage("", false);
   setStatus("", false);
   setSimulateMessage("", false);
+  setChangeMasterMessage("", false);
+  changeMasterForm.reset();
+  changeMasterForm.hidden = true;
 }
 
 function showApp(username) {
@@ -681,11 +715,49 @@ function showApp(username) {
   toggleSimulatePass.textContent = "Show";
   toggleSimulatePass.setAttribute("aria-pressed", "false");
   setSimulateMessage("", false);
+  setChangeMasterMessage("", false);
+  changeMasterForm.reset();
+  changeMasterForm.hidden = true;
   const addedDemoCount = ensureMinimumDemoAccounts(username);
   if (addedDemoCount > 0) {
     setStatus("Added " + addedDemoCount + " demo account(s) to reach 10 total.", false);
   }
   loadAccounts();
+}
+
+function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
+  if (!currentUsername) {
+    return { ok: false, message: "No user is signed in." };
+  }
+
+  const users = getUsers();
+  const userIndex = users.findIndex(function (u) {
+    return u.username.toLowerCase() === currentUsername.toLowerCase();
+  });
+  if (userIndex < 0) {
+    return { ok: false, message: "Could not find your user record." };
+  }
+
+  // Verify the current password against the saved hash.
+  const expectedHash = users[userIndex].passwordHash;
+  const currentHash = hashMasterPassword(users[userIndex].username, currentPass);
+  if (currentHash !== expectedHash) {
+    return { ok: false, message: "Current master password is incorrect." };
+  }
+
+  // Validate strength and confirmation before saving.
+  if (!isStrongPassword(nextPass)) {
+    return {
+      ok: false,
+      message:
+        "New master password must be 8+ characters with lowercase, uppercase, number, and symbol.",
+    };
+  }
+
+  // Save only the new hash. Accounts are stored separately and remain untouched.
+  users[userIndex].passwordHash = hashMasterPassword(users[userIndex].username, nextPass);
+  saveUsers(users);
+  return { ok: true, message: "Master password updated successfully" };
 }
 
 function tryResumeSession() {
@@ -710,19 +782,103 @@ function tryResumeSession() {
 goSignup.addEventListener("click", function () {
   loginBlock.hidden = true;
   signupBlock.hidden = false;
+  signupPass.type = "password";
+  signupPass2.type = "password";
+  toggleSignupPass.textContent = "Show";
+  toggleSignupPass.setAttribute("aria-pressed", "false");
+  toggleSignupPass2.textContent = "Show";
+  toggleSignupPass2.setAttribute("aria-pressed", "false");
   setAuthMessage("", false);
 });
 
 goLogin.addEventListener("click", function () {
   signupBlock.hidden = true;
   loginBlock.hidden = false;
+  loginPass.type = "password";
+  toggleLoginPass.textContent = "Show";
+  toggleLoginPass.setAttribute("aria-pressed", "false");
   setAuthMessage("", false);
+});
+
+// Simple password toggle:
+// if input is hidden ("password"), show as text; click again to hide.
+toggleLoginPass.addEventListener("click", function () {
+  const show = loginPass.type === "password";
+  loginPass.type = show ? "text" : "password";
+  toggleLoginPass.textContent = show ? "Hide" : "Show";
+  toggleLoginPass.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleLoginPass.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
+// Same toggle logic for Sign Up master password.
+toggleSignupPass.addEventListener("click", function () {
+  const show = signupPass.type === "password";
+  signupPass.type = show ? "text" : "password";
+  toggleSignupPass.textContent = show ? "Hide" : "Show";
+  toggleSignupPass.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleSignupPass.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
+// Same toggle logic for Sign Up confirm password.
+toggleSignupPass2.addEventListener("click", function () {
+  const show = signupPass2.type === "password";
+  signupPass2.type = show ? "text" : "password";
+  toggleSignupPass2.textContent = show ? "Hide" : "Show";
+  toggleSignupPass2.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleSignupPass2.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
+toggleChangeMasterBtn.addEventListener("click", function () {
+  const shouldShow = changeMasterForm.hidden;
+  changeMasterForm.hidden = !shouldShow;
+  if (shouldShow) {
+    setChangeMasterMessage("", false);
+    currentMasterPass.focus();
+  } else {
+    changeMasterForm.reset();
+    setChangeMasterMessage("", false);
+  }
+});
+
+changeMasterForm.addEventListener("submit", function (e) {
+  e.preventDefault();
+  if (!currentUsername) {
+    return;
+  }
+
+  const currentPass = currentMasterPass.value;
+  const nextPass = newMasterPass.value;
+  const confirmPass = confirmMasterPass.value;
+
+  if (!currentPass || !nextPass || !confirmPass) {
+    setChangeMasterMessage("Fill in all password fields.", true);
+    return;
+  }
+  if (nextPass !== confirmPass) {
+    setChangeMasterMessage("Confirm new password must match new password.", true);
+    return;
+  }
+
+  // Beginner-friendly flow:
+  // 1) Check current password hash
+  // 2) Validate new password strength
+  // 3) Save new hash to localStorage users list
+  const result = updateMasterPasswordForCurrentUser(currentPass, nextPass);
+  setChangeMasterMessage(result.message, !result.ok);
+  if (!result.ok) {
+    return;
+  }
+
+  // Keep session active and do not touch saved accounts.
+  setSession(currentUsername);
+  changeMasterForm.reset();
+  changeMasterForm.hidden = true;
 });
 
 loginForm.addEventListener("submit", function (e) {
   e.preventDefault();
   const username = document.getElementById("loginUser").value.trim();
-  const password = document.getElementById("loginPass").value;
+  const password = loginPass.value;
   if (!username) {
     setAuthMessage("Enter a username.", true);
     return;
@@ -746,8 +902,8 @@ loginForm.addEventListener("submit", function (e) {
 signupForm.addEventListener("submit", function (e) {
   e.preventDefault();
   const username = document.getElementById("signupUser").value.trim();
-  const pass = document.getElementById("signupPass").value;
-  const pass2 = document.getElementById("signupPass2").value;
+  const pass = signupPass.value;
+  const pass2 = signupPass2.value;
   if (!username) {
     setAuthMessage("Choose a username.", true);
     return;
