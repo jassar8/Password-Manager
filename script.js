@@ -308,7 +308,7 @@ function setAccountsForUser(username, accounts) {
 //   Guessing the key from storage alone is not enough; offline guessing targets the
 //   master password through slow PBKDF2 (many iterations, SHA-256).
 // - Even with this file and a localStorage dump, ciphertext stays opaque without the
-//   correct master password to re-derive the same key (contrast: demo branch XOR_KEY).
+//   correct master password to re-derive the same key (contrast: branch main's XOR_KEY).
 // Site passwords are still XOR'd with the derived bytes here (teaching XOR); production
 // apps would use AES-GCM or similar. Log out to clear the in-memory key.
 function bytesToBase64(bytes) {
