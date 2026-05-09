@@ -67,6 +67,17 @@ const toggleAddPass = document.getElementById("toggleAddPass");
 const btnGeneratePass = document.getElementById("btnGeneratePass");
 const btnFillGenerated = document.getElementById("btnFillGenerated");
 const generatedPassPreview = document.getElementById("generatedPassPreview");
+const editAccountModal = document.getElementById("editAccountModal");
+const editAccountForm = document.getElementById("editAccountForm");
+const editSiteName = document.getElementById("editSiteName");
+const editWebsiteUrl = document.getElementById("editWebsiteUrl");
+const editAccountUser = document.getElementById("editAccountUser");
+const editAccountPass = document.getElementById("editAccountPass");
+const toggleEditPass = document.getElementById("toggleEditPass");
+const btnEditGeneratePass = document.getElementById("btnEditGeneratePass");
+const editGeneratedPreview = document.getElementById("editGeneratedPreview");
+const btnEditCancel = document.getElementById("btnEditCancel");
+const btnEditModalClose = document.getElementById("btnEditModalClose");
 
 // Stores the currently logged-in username in memory while the page is open.
 let currentUsername = null;
@@ -77,6 +88,8 @@ let currentUsername = null;
 let activeEncryptionKeyBytes = null;
 // Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
+// Which account id is open in the edit modal (null when modal is closed).
+let editingAccountId = null;
 
 // Known website icons for common services. Falls back to globe when unknown.
 const KNOWN_SITE_ICONS = {
@@ -842,13 +855,37 @@ function deleteAccount(accountId) {
   loadAccounts();
 }
 
-// --- Edit one account with simple prompts (beginner-friendly) ---
+// --- Edit account modal (all fields; replaces old window.prompt flow) ---
+function closeEditAccountModal() {
+  if (!editAccountModal) {
+    return;
+  }
+  editingAccountId = null;
+  editAccountModal.classList.add("hidden");
+  editAccountModal.setAttribute("aria-hidden", "true");
+  if (editAccountForm) {
+    editAccountForm.reset();
+  }
+  if (editAccountPass) {
+    editAccountPass.type = "password";
+  }
+  if (toggleEditPass) {
+    toggleEditPass.textContent = "Show";
+    toggleEditPass.setAttribute("aria-pressed", "false");
+    toggleEditPass.setAttribute("aria-label", "Show password");
+  }
+  if (editGeneratedPreview) {
+    editGeneratedPreview.hidden = true;
+    editGeneratedPreview.textContent = "";
+  }
+}
+
 function editAccount(accountId) {
-  if (!currentUsername) {
+  if (!currentUsername || !editAccountModal) {
     return;
   }
   const accounts = getAccountsForUser(currentUsername);
-  let index = accounts.findIndex(function (a) {
+  const index = accounts.findIndex(function (a) {
     return a.id === accountId;
   });
   if (index < 0) {
@@ -857,87 +894,29 @@ function editAccount(accountId) {
   }
 
   const account = accounts[index];
-  const currentSiteName = account.siteName || "";
-  const currentWebsiteUrl = account.websiteUrl || "";
-  const currentUsernameOnSite = account.username || "";
-  // Convert encrypted stored value back to plain text so user can edit it.
-  const currentPassword = decryptPassword(account.encryptedPassword || "");
-
-  const nextSiteNameInput = window.prompt("Edit site name:", currentSiteName);
-  if (nextSiteNameInput === null) {
-    return;
-  }
-  const nextWebsiteUrlInput = window.prompt("Edit website URL (optional):", currentWebsiteUrl);
-  if (nextWebsiteUrlInput === null) {
-    return;
-  }
-  const nextUsernameInput = window.prompt("Edit username on site:", currentUsernameOnSite);
-  if (nextUsernameInput === null) {
-    return;
-  }
-  const nextPasswordInput = window.prompt("Edit password on site:", currentPassword);
-  if (nextPasswordInput === null) {
+  var currentPassword = "";
+  try {
+    currentPassword = decryptPassword(account.encryptedPassword || "");
+  } catch (err) {
+    setStatus("Please log in again to edit passwords.", true);
     return;
   }
 
-  const nextSiteName = nextSiteNameInput.trim();
-  const nextWebsiteUrl = nextWebsiteUrlInput.trim();
-  const nextUsername = nextUsernameInput.trim();
-  const nextPassword = nextPasswordInput;
+  editingAccountId = accountId;
+  editSiteName.value = account.siteName || "";
+  editWebsiteUrl.value = account.websiteUrl || "";
+  editAccountUser.value = account.username || "";
+  editAccountPass.value = currentPassword;
+  editAccountPass.type = "password";
+  toggleEditPass.textContent = "Show";
+  toggleEditPass.setAttribute("aria-pressed", "false");
+  toggleEditPass.setAttribute("aria-label", "Show password");
+  editGeneratedPreview.hidden = true;
+  editGeneratedPreview.textContent = "";
 
-  if (!nextSiteName) {
-    setStatus("Site name is required.", true);
-    return;
-  }
-  if (!nextUsername) {
-    setStatus("Username on site is required.", true);
-    return;
-  }
-  if (!isStrongPassword(nextPassword)) {
-    setStatus(
-      "Site password must be strong: 8+ chars with lowercase, uppercase, number, and symbol.",
-      true
-    );
-    return;
-  }
-
-  const nextNormalizedWebsite = normalizeUrl(nextWebsiteUrl);
-  if (nextWebsiteUrl && !nextNormalizedWebsite) {
-    setStatus("That website URL does not look valid.", true);
-    return;
-  }
-
-  const updatedAccount = {
-    id: account.id,
-    siteName: nextSiteName,
-    websiteUrl: nextWebsiteUrl,
-    username: nextUsername,
-    encryptedPassword: encryptPassword(nextPassword),
-    normalizedWebsite: nextNormalizedWebsite,
-  };
-
-  // Keep the duplicate-website rule when URL is provided.
-  // If another card has the same normalized website, replace that one too.
-  if (nextNormalizedWebsite) {
-    const duplicateIndex = accounts.findIndex(function (a) {
-      if (a.id === account.id) {
-        return false;
-      }
-      const existingNorm = a.normalizedWebsite || normalizeUrl(a.websiteUrl);
-      return existingNorm === nextNormalizedWebsite;
-    });
-    if (duplicateIndex >= 0) {
-      accounts.splice(duplicateIndex, 1);
-      if (duplicateIndex < index) {
-        index -= 1;
-      }
-    }
-  }
-
-  accounts[index] = updatedAccount;
-  setAccountsForUser(currentUsername, accounts);
-  setStatus("Account updated.", false);
-  loadAccounts();
+  editAccountModal.classList.remove("hidden");
+  editAccountModal.setAttribute("aria-hidden", "false");
+  editSiteName.focus();
 }
 
 function refreshSimulateSiteOptions(accounts) {
@@ -992,6 +971,7 @@ function loadAccounts() {
 // --- Switch between login screen and main app ---
 function showAuth() {
   // Auth-page mode: show only Login/Sign Up blocks and hide full dashboard/app panel.
+  closeEditAccountModal();
   currentUsername = null;
   activeEncryptionKeyBytes = null;
   appSection.classList.add("hidden");
@@ -1439,6 +1419,135 @@ btnFillGenerated.addEventListener("click", function () {
   addAccountPass.dispatchEvent(new Event("input"));
 });
 
+// --- Edit modal: show/hide password while editing ---
+toggleEditPass.addEventListener("click", function () {
+  const show = editAccountPass.type === "password";
+  editAccountPass.type = show ? "text" : "password";
+  toggleEditPass.textContent = show ? "Hide" : "Show";
+  toggleEditPass.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  toggleEditPass.setAttribute("aria-pressed", show ? "true" : "false");
+});
+
+// Fill edit password field with a new strong password (same rules as Add account).
+btnEditGeneratePass.addEventListener("click", function () {
+  const generated = generateStrongPassword();
+  editAccountPass.value = generated;
+  editGeneratedPreview.textContent = "Generated: " + generated;
+  editGeneratedPreview.hidden = false;
+  editAccountPass.type = "text";
+  toggleEditPass.textContent = "Hide";
+  toggleEditPass.setAttribute("aria-pressed", "true");
+  toggleEditPass.setAttribute("aria-label", "Hide password");
+  editAccountPass.dispatchEvent(new Event("input"));
+});
+
+btnEditCancel.addEventListener("click", function () {
+  closeEditAccountModal();
+});
+
+btnEditModalClose.addEventListener("click", function () {
+  closeEditAccountModal();
+});
+
+// Click dimmed area outside the card closes the modal (dialog stays open if you click inside).
+if (editAccountModal) {
+  editAccountModal.addEventListener("click", function (e) {
+    if (e.target === editAccountModal) {
+      closeEditAccountModal();
+    }
+  });
+}
+
+editAccountForm.addEventListener("submit", function (e) {
+  e.preventDefault();
+  if (!currentUsername || !editingAccountId) {
+    return;
+  }
+
+  const accounts = getAccountsForUser(currentUsername);
+  let index = accounts.findIndex(function (a) {
+    return a.id === editingAccountId;
+  });
+  if (index < 0) {
+    closeEditAccountModal();
+    return;
+  }
+
+  const account = accounts[index];
+  const nextSiteName = editSiteName.value.trim();
+  const nextWebsiteUrl = editWebsiteUrl.value.trim();
+  const nextUsername = editAccountUser.value.trim();
+  const nextPassword = editAccountPass.value;
+
+  if (!nextSiteName) {
+    setStatus("Site name is required.", true);
+    return;
+  }
+  if (!nextUsername) {
+    setStatus("Username on site is required.", true);
+    return;
+  }
+  if (!isStrongPassword(nextPassword)) {
+    setStatus(
+      "Site password must be strong: 8+ chars with lowercase, uppercase, number, and symbol.",
+      true
+    );
+    return;
+  }
+
+  const nextNormalizedWebsite = normalizeUrl(nextWebsiteUrl);
+  if (nextWebsiteUrl && !nextNormalizedWebsite) {
+    setStatus("That website URL does not look valid.", true);
+    return;
+  }
+
+  var nextEncrypted;
+  try {
+    nextEncrypted = encryptPassword(nextPassword);
+  } catch (err) {
+    setStatus("Please log in again to edit passwords.", true);
+    return;
+  }
+
+  const updatedAccount = {
+    id: account.id,
+    siteName: nextSiteName,
+    websiteUrl: nextWebsiteUrl,
+    username: nextUsername,
+    encryptedPassword: nextEncrypted,
+    normalizedWebsite: nextNormalizedWebsite,
+  };
+
+  // Same duplicate-website rule as Add / old edit: remove other card with same normalized host, then save.
+  var replacedDuplicate = false;
+  if (nextNormalizedWebsite) {
+    const duplicateIndex = accounts.findIndex(function (a) {
+      if (a.id === account.id) {
+        return false;
+      }
+      const existingNorm = a.normalizedWebsite || normalizeUrl(a.websiteUrl);
+      return existingNorm === nextNormalizedWebsite;
+    });
+    if (duplicateIndex >= 0) {
+      accounts.splice(duplicateIndex, 1);
+      if (duplicateIndex < index) {
+        index -= 1;
+      }
+      replacedDuplicate = true;
+    }
+  }
+
+  accounts[index] = updatedAccount;
+  setAccountsForUser(currentUsername, accounts);
+  closeEditAccountModal();
+  if (replacedDuplicate) {
+    setStatus("Replaced existing account for that website (duplicate rule).", false);
+  } else {
+    setStatus("Account updated.", false);
+  }
+  loadAccounts();
+});
+
 addAccountForm.addEventListener("submit", function (e) {
   e.preventDefault();
   if (!currentUsername) {
@@ -1510,6 +1619,7 @@ addAccountForm.addEventListener("submit", function (e) {
 // App entry point: try restoring previous session, otherwise show auth page.
 createPasswordStrengthMeter(signupPass);
 createPasswordStrengthMeter(addAccountPass);
+createPasswordStrengthMeter(editAccountPass);
 createPasswordStrengthMeter(newMasterPass);
 applyTheme(getSavedTheme());
 tryResumeSession();

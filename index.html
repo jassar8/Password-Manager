@@ -153,6 +153,45 @@
       <p id="statusText" class="message">Loading…</p>
       <p id="noResultsText" class="hint no-results hidden">No matching accounts found</p>
       <ul id="accountsList" class="accounts-list"></ul>
+
+      <!-- Full edit form (all fields). Opened from each card's Edit button. -->
+      <div
+        id="editAccountModal"
+        class="modal-overlay hidden"
+        aria-hidden="true"
+        role="dialog"
+        aria-labelledby="editAccountModalTitle"
+      >
+        <div class="modal-dialog card" role="document">
+          <div class="modal-header">
+            <h2 id="editAccountModalTitle" class="modal-title">Edit saved account</h2>
+            <button type="button" class="btn-secondary modal-close-btn" id="btnEditModalClose" aria-label="Close edit form">
+              ✕
+            </button>
+          </div>
+          <form id="editAccountForm" class="stack" novalidate>
+            <label>Site name <input id="editSiteName" type="text" required autocomplete="off" /></label>
+            <label>Website URL <input id="editWebsiteUrl" type="text" placeholder="https://example.com (optional)" autocomplete="off" /></label>
+            <label>Username on site <input id="editAccountUser" type="text" required autocomplete="off" /></label>
+            <div class="password-field-row">
+              <label class="grow">Password on site
+                <input id="editAccountPass" type="password" required autocomplete="off" />
+              </label>
+              <button type="button" class="btn-secondary eye-toggle" id="toggleEditPass" aria-pressed="false" aria-label="Show password">
+                Show
+              </button>
+            </div>
+            <div class="gen-row">
+              <button type="button" class="btn-secondary" id="btnEditGeneratePass">Generate new password</button>
+            </div>
+            <p id="editGeneratedPreview" class="mono-preview" hidden></p>
+            <div class="modal-actions">
+              <button type="button" class="btn-secondary" id="btnEditCancel">Cancel</button>
+              <button type="submit" class="btn-primary" id="btnEditSave">Save changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </section>
   </main>
 
