@@ -8,9 +8,14 @@ const LS_USERS = "pm_web_users_v1";
 const LS_ACCOUNTS = "pm_web_accounts_map_v1";
 const LS_SESSION = "pm_web_session_v1";
 const LS_THEME = "pm_web_theme_v1";
-const KDF_ITERATIONS = 210000;
-const KDF_HASH = "SHA-256";
 const ENCRYPTED_PREFIX_V2 = "v2:";
+
+// --- EDUCATIONAL ONLY: hardcoded XOR "key" in source (insecure) ---
+// Anyone can open this file (or DevTools → Sources) and search for XOR_KEY. The same
+// bytes XOR every saved site password, so learning the key means decrypting all vault
+// data from localStorage or an export. XOR with a tiny repeating key is also weak crypto.
+// This branch is intentionally weak to teach the difference vs. feature/harder-to-steal-derived-key.
+const XOR_KEY = "K";
 
 // --- Page elements ---
 const authSection = document.getElementById("authSection");
@@ -64,9 +69,6 @@ const generatedPassPreview = document.getElementById("generatedPassPreview");
 
 // Stores the currently logged-in username in memory while the page is open.
 let currentUsername = null;
-// Stores the derived encryption key bytes only in memory for this browser session.
-// The key is NEVER saved to localStorage and is not hardcoded in this file.
-let activeEncryptionKeyBytes = null;
 // Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
 
@@ -292,14 +294,7 @@ function setAccountsForUser(username, accounts) {
   saveAccountsMap(map);
 }
 
-// --- Key derivation + encryption helpers ---
-// Stronger demo approach:
-// - No fixed encryption key is stored in code.
-// - The key is derived from the entered master password + per-user random salt.
-// - Only salt is saved in localStorage; derived key lives in memory only.
-// - Without the correct master password, saved passwords cannot be decrypted correctly.
-// This helps protect against someone reading script.js or localStorage.
-// Real password managers use stronger, battle-tested algorithms and hardened key management.
+// --- XOR encryption helpers (demo branch: key is XOR_KEY above, not derived) ---
 function bytesToBase64(bytes) {
   var binary = "";
   for (var i = 0; i < bytes.length; i++) {
@@ -317,33 +312,8 @@ function base64ToBytes(base64Text) {
   return out;
 }
 
-function generateRandomSaltBase64() {
-  const salt = new Uint8Array(16);
-  crypto.getRandomValues(salt);
-  return bytesToBase64(salt);
-}
-
-async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
-  const encoder = new TextEncoder();
-  const saltBytes = base64ToBytes(saltBase64);
-  const passwordKey = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(masterPassword),
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"]
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: KDF_HASH,
-      salt: saltBytes,
-      iterations: KDF_ITERATIONS,
-    },
-    passwordKey,
-    256
-  );
-  return new Uint8Array(bits);
+function xorKeyBytes() {
+  return new TextEncoder().encode(XOR_KEY);
 }
 
 function xorBytes(inputBytes, keyBytes) {
@@ -358,23 +328,9 @@ function encryptPassword(plainText) {
   if (!plainText) {
     return "";
   }
-  if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
-    throw new Error("Encryption key is not active in memory.");
-  }
   const plainBytes = new TextEncoder().encode(plainText);
-  const encryptedBytes = xorBytes(plainBytes, activeEncryptionKeyBytes);
+  const encryptedBytes = xorBytes(plainBytes, xorKeyBytes());
   return ENCRYPTED_PREFIX_V2 + bytesToBase64(encryptedBytes);
-}
-
-function legacyDecryptFixedKey(encryptedText) {
-  // Backward compatibility for old saved records created before key derivation.
-  // This path is used only to read old data and can be removed after migration.
-  const legacyKeyCode = 75;
-  var out = "";
-  for (var i = 0; i < encryptedText.length; i++) {
-    out += String.fromCharCode(encryptedText.charCodeAt(i) ^ legacyKeyCode);
-  }
-  return out;
 }
 
 function decryptPassword(storedValue) {
@@ -383,15 +339,12 @@ function decryptPassword(storedValue) {
     return "";
   }
   if (encryptedText.indexOf(ENCRYPTED_PREFIX_V2) === 0) {
-    if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
-      throw new Error("Decryption key is not active in memory.");
-    }
     const payload = encryptedText.slice(ENCRYPTED_PREFIX_V2.length);
     const encryptedBytes = base64ToBytes(payload);
-    const plainBytes = xorBytes(encryptedBytes, activeEncryptionKeyBytes);
+    const plainBytes = xorBytes(encryptedBytes, xorKeyBytes());
     return new TextDecoder().decode(plainBytes);
   }
-  return legacyDecryptFixedKey(encryptedText);
+  return "";
 }
 
 // --- Strong password: 8+, lower, upper, digit, symbol ---
@@ -951,7 +904,6 @@ function loadAccounts() {
 function showAuth() {
   // Auth-page mode: show only Login/Sign Up blocks and hide full dashboard/app panel.
   currentUsername = null;
-  activeEncryptionKeyBytes = null;
   appSection.classList.add("hidden");
   authSection.classList.remove("hidden");
   loginBlock.hidden = false;
@@ -1007,19 +959,6 @@ function showApp(username) {
     setStatus("Added " + addedDemoCount + " demo account(s) to reach 10 total.", false);
   }
   loadAccounts();
-}
-
-async function activateEncryptionKeyForUser(username, masterPassword) {
-  const users = getUsers();
-  const userIndex = findUserIndexByUsername(users, username);
-  if (userIndex < 0) {
-    throw new Error("Could not find user while preparing encryption key.");
-  }
-  if (!users[userIndex].kdfSalt) {
-    users[userIndex].kdfSalt = generateRandomSaltBase64();
-    saveUsers(users);
-  }
-  activeEncryptionKeyBytes = await deriveEncryptionKeyBytes(masterPassword, users[userIndex].kdfSalt);
 }
 
 function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
@@ -1173,7 +1112,7 @@ toggleChangeMasterBtn.addEventListener("click", function () {
   }
 });
 
-changeMasterForm.addEventListener("submit", async function (e) {
+changeMasterForm.addEventListener("submit", function (e) {
   e.preventDefault();
   if (!currentUsername) {
     return;
@@ -1202,16 +1141,6 @@ changeMasterForm.addEventListener("submit", async function (e) {
     return;
   }
 
-  try {
-    await activateEncryptionKeyForUser(currentUsername, nextPass);
-  } catch (error) {
-    setChangeMasterMessage(
-      "Master password changed, but key unlock failed. Please log out and log in again.",
-      true
-    );
-    return;
-  }
-
   // Keep session active and do not touch saved accounts.
   setSession(currentUsername);
   changeMasterForm.reset();
@@ -1219,7 +1148,7 @@ changeMasterForm.addEventListener("submit", async function (e) {
   resetChangeMasterPasswordVisibility();
 });
 
-loginForm.addEventListener("submit", async function (e) {
+loginForm.addEventListener("submit", function (e) {
   e.preventDefault();
   const username = document.getElementById("loginUser").value.trim();
   const password = loginPass.value;
@@ -1241,16 +1170,10 @@ loginForm.addEventListener("submit", async function (e) {
     setAuthMessage("Wrong username or password.", true);
     return;
   }
-  try {
-    await activateEncryptionKeyForUser(found.username, password);
-  } catch (error) {
-    setAuthMessage("Could not derive encryption key in this browser.", true);
-    return;
-  }
   showApp(found.username);
 });
 
-signupForm.addEventListener("submit", async function (e) {
+signupForm.addEventListener("submit", function (e) {
   e.preventDefault();
   const username = document.getElementById("signupUser").value.trim();
   const pass = signupPass.value;
@@ -1286,8 +1209,6 @@ signupForm.addEventListener("submit", async function (e) {
     username: username,
     // Store password hash only (never raw master password).
     passwordHash: hashMasterPassword(username, pass),
-    // Store only random salt; derived key is created after login and kept in memory.
-    kdfSalt: generateRandomSaltBase64(),
   };
   const nextUsers = users.concat([newUser]);
   try {
@@ -1297,12 +1218,6 @@ signupForm.addEventListener("submit", async function (e) {
     saveAccountsMap(map);
   } catch (err) {
     setAuthMessage("Could not save to browser storage (localStorage). Check browser privacy settings.", true);
-    return;
-  }
-  try {
-    await activateEncryptionKeyForUser(username, pass);
-  } catch (error) {
-    setAuthMessage("Account created, but key setup failed. Try logging in again.", true);
     return;
   }
   showApp(username);
