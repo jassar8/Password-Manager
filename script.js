@@ -2,16 +2,11 @@
  * Password Manager — offline web app (no server, no fetch).
  * Open index.html in your browser; data is stored in localStorage.
  *
- * Git branch: main (EDUCATIONAL / INTENTIONALLY INSECURE).
- *
- * The site-password “encryption” uses a hardcoded XOR key in this file (see XOR_KEY).
- * Anyone who can read the project (or DevTools → Sources) can find that key and
- * decrypt every saved site password from localStorage or an export. This branch exists
- * on purpose to teach why secrets must not live in client-side source code.
- *
- * For the safer teaching build (master-password-derived key, salt in localStorage):
- *   git switch feature/harder-to-steal-derived-key
- * Same UI and features; only how the encryption key is handled differs.
+ * Git branch: feature/harder-to-steal-derived-key (safer teaching build).
+ * Site passwords are encrypted with a key derived (PBKDF2 + salt) from the master
+ * password after login. Only the salt is stored in localStorage — no hardcoded XOR
+ * key in this file. Compare with branch main for the intentionally weak XOR demo.
+ * Same UI and features as main; only encryption key handling differs.
  */
 
 // --- Keys for localStorage (change only if you want a fresh empty app) ---
@@ -19,12 +14,9 @@ const LS_USERS = "pm_web_users_v1";
 const LS_ACCOUNTS = "pm_web_accounts_map_v1";
 const LS_SESSION = "pm_web_session_v1";
 const LS_THEME = "pm_web_theme_v1";
+const KDF_ITERATIONS = 210000;
+const KDF_HASH = "SHA-256";
 const ENCRYPTED_PREFIX_V2 = "v2:";
-
-// --- EDUCATIONAL ONLY: encryption key shipped in source (insecure) ---
-// If a hacker copies this repo or the served script.js, they learn XOR_KEY and can
-// undo XOR on every stored encryptedPassword. Not for real secrets.
-const XOR_KEY = "K";
 
 // --- Page elements ---
 const authSection = document.getElementById("authSection");
@@ -89,6 +81,11 @@ const btnEditModalClose = document.getElementById("btnEditModalClose");
 
 // Stores the currently logged-in username in memory while the page is open.
 let currentUsername = null;
+// Derived site-password encryption key (PBKDF2 output) — exists only in RAM for this tab
+// session after a successful login. It is NOT written to localStorage and NOT embedded
+// in script.js, so a thief who only copies your repo or localStorage still lacks the
+// secret that actually decrypts saved site passwords (they need your master password too).
+let activeEncryptionKeyBytes = null;
 // Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
 // Which account id is open in the edit modal (null when modal is closed).
@@ -309,9 +306,17 @@ function setAccountsForUser(username, accounts) {
   saveAccountsMap(map);
 }
 
-// --- XOR encryption for saved site passwords (main branch — key in source) ---
-// Same v2: + base64 wire format as the feature branch, but the XOR stream uses XOR_KEY
-// from this file, not a key derived from the master password.
+// --- Key derivation + encryption helpers (harder-to-steal than a hardcoded XOR key) ---
+// Why this is harder for an attacker to "steal the key":
+// - There is no single secret byte string in source code that unlocks every vault. The
+//   encryption key is computed from (master password + per-user salt) at login time.
+// - Only the salt (and a separate login hash) persist in localStorage — not the key.
+//   Guessing the key from storage alone is not enough; offline guessing targets the
+//   master password through slow PBKDF2 (many iterations, SHA-256).
+// - Even with this file and a localStorage dump, ciphertext stays opaque without the
+//   correct master password to re-derive the same key (contrast: branch main's XOR_KEY).
+// Site passwords are still XOR'd with the derived bytes here (teaching XOR); production
+// apps would use AES-GCM or similar. Log out to clear the in-memory key.
 function bytesToBase64(bytes) {
   var binary = "";
   for (var i = 0; i < bytes.length; i++) {
@@ -329,8 +334,33 @@ function base64ToBytes(base64Text) {
   return out;
 }
 
-function xorKeyBytes() {
-  return new TextEncoder().encode(XOR_KEY);
+function generateRandomSaltBase64() {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  return bytesToBase64(salt);
+}
+
+async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
+  const encoder = new TextEncoder();
+  const saltBytes = base64ToBytes(saltBase64);
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(masterPassword),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: KDF_HASH,
+      salt: saltBytes,
+      iterations: KDF_ITERATIONS,
+    },
+    passwordKey,
+    256
+  );
+  return new Uint8Array(bits);
 }
 
 function xorBytes(inputBytes, keyBytes) {
@@ -345,8 +375,11 @@ function encryptPassword(plainText) {
   if (!plainText) {
     return "";
   }
+  if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
+    throw new Error("Encryption key is not active in memory.");
+  }
   const plainBytes = new TextEncoder().encode(plainText);
-  const encryptedBytes = xorBytes(plainBytes, xorKeyBytes());
+  const encryptedBytes = xorBytes(plainBytes, activeEncryptionKeyBytes);
   return ENCRYPTED_PREFIX_V2 + bytesToBase64(encryptedBytes);
 }
 
@@ -356,9 +389,12 @@ function decryptPassword(storedValue) {
     return "";
   }
   if (encryptedText.indexOf(ENCRYPTED_PREFIX_V2) === 0) {
+    if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
+      throw new Error("Decryption key is not active in memory.");
+    }
     const payload = encryptedText.slice(ENCRYPTED_PREFIX_V2.length);
     const encryptedBytes = base64ToBytes(payload);
-    const plainBytes = xorBytes(encryptedBytes, xorKeyBytes());
+    const plainBytes = xorBytes(encryptedBytes, activeEncryptionKeyBytes);
     return new TextDecoder().decode(plainBytes);
   }
   return "";
@@ -370,7 +406,7 @@ function migrateUserAccountsList(accounts) {
   if (!Array.isArray(accounts) || accounts.length === 0) {
     return { accounts: accounts || [], changed: false };
   }
-  // XOR key is always available on main (hardcoded); no login-derived key needed to encrypt.
+  var keyReady = !!(activeEncryptionKeyBytes && activeEncryptionKeyBytes.length);
   var changed = false;
   var next = accounts.map(function (acct) {
     var row = Object.assign({}, acct);
@@ -399,10 +435,15 @@ function migrateUserAccountsList(accounts) {
     if (raw.indexOf(ENCRYPTED_PREFIX_V2) === 0) {
       encOut = raw;
     } else if (raw.length > 0) {
-      try {
-        encOut = encryptPassword(raw);
-        changed = true;
-      } catch (e) {
+      if (keyReady) {
+        try {
+          encOut = encryptPassword(raw);
+          changed = true;
+        } catch (e) {
+          encOut = "";
+          changed = true;
+        }
+      } else {
         encOut = "";
         changed = true;
       }
@@ -517,6 +558,9 @@ function createDemoAccount(template, idx) {
 // Keep demo data helpful for first use: if user has fewer than 10 accounts,
 // add only missing demo entries and never overwrite existing user accounts.
 function ensureMinimumDemoAccounts(username) {
+  if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
+    return 0;
+  }
   const accounts = getAccountsForUser(username);
   if (accounts.length >= 10) {
     return 0;
@@ -666,8 +710,8 @@ function buildAccountCard(account) {
   const encryptedPayload = account.encryptedPassword || "";
   const hasV2Cipher = encryptedPayload.indexOf(ENCRYPTED_PREFIX_V2) === 0;
 
-  // Lazy decrypt: decrypt only when the user reveals or copies the password. Each card
-  // keeps its own cache. Decrypt can still throw on corrupt base64 payloads.
+  // Lazy decrypt: avoids throwing during render if the derived key is not in memory yet,
+  // and lets the eye button decrypt only when needed. Each card keeps its own cache.
   var plainResolved = false;
   var cachedPlainPassword = "";
   function resolvePlainPasswordForCard() {
@@ -763,7 +807,7 @@ function buildAccountCard(account) {
     if (!passwordRevealed) {
       var reveal = resolvePlainPasswordForCard();
       if (!reveal.ok) {
-        setStatus("Could not decrypt this password (invalid or corrupt saved data).", true);
+        setStatus("Please log in again to decrypt passwords.", true);
         return;
       }
       if (reveal.missingCipher) {
@@ -836,7 +880,7 @@ function buildAccountCard(account) {
     }
     var copyResult = resolvePlainPasswordForCard();
     if (!copyResult.ok) {
-      setStatus("Could not decrypt this password (invalid or corrupt saved data).", true);
+      setStatus("Please log in again to decrypt passwords.", true);
       return;
     }
     if (copyResult.missingCipher) {
@@ -960,7 +1004,7 @@ function editAccount(accountId) {
   try {
     currentPassword = decryptPassword(account.encryptedPassword || "");
   } catch (err) {
-    setStatus("Could not decrypt this password (invalid or corrupt saved data).", true);
+    setStatus("Please log in again to edit passwords.", true);
     return;
   }
 
@@ -1035,6 +1079,7 @@ function showAuth() {
   // Auth-page mode: show only Login/Sign Up blocks and hide full dashboard/app panel.
   closeEditAccountModal();
   currentUsername = null;
+  activeEncryptionKeyBytes = null;
   appSection.classList.add("hidden");
   authSection.classList.remove("hidden");
   loginBlock.hidden = false;
@@ -1092,6 +1137,19 @@ function showApp(username) {
   loadAccounts();
 }
 
+async function activateEncryptionKeyForUser(username, masterPassword) {
+  const users = getUsers();
+  const userIndex = findUserIndexByUsername(users, username);
+  if (userIndex < 0) {
+    throw new Error("Could not find user while preparing encryption key.");
+  }
+  if (!users[userIndex].kdfSalt) {
+    users[userIndex].kdfSalt = generateRandomSaltBase64();
+    saveUsers(users);
+  }
+  activeEncryptionKeyBytes = await deriveEncryptionKeyBytes(masterPassword, users[userIndex].kdfSalt);
+}
+
 function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
   if (!currentUsername) {
     return { ok: false, message: "No user is signed in." };
@@ -1143,7 +1201,9 @@ function tryResumeSession() {
     const loginUserInput = document.getElementById("loginUser");
     loginUserInput.value = sessionUser;
     setAuthMessage(
-      "Session restored for " + sessionUser + ". Enter your master password to sign back in.",
+      "Session restored for " +
+        sessionUser +
+        ". Enter your master password to unlock decrypted passwords.",
       false
     );
   } else {
@@ -1241,7 +1301,7 @@ toggleChangeMasterBtn.addEventListener("click", function () {
   }
 });
 
-changeMasterForm.addEventListener("submit", function (e) {
+changeMasterForm.addEventListener("submit", async function (e) {
   e.preventDefault();
   if (!currentUsername) {
     return;
@@ -1270,15 +1330,24 @@ changeMasterForm.addEventListener("submit", function (e) {
     return;
   }
 
+  try {
+    await activateEncryptionKeyForUser(currentUsername, nextPass);
+  } catch (error) {
+    setChangeMasterMessage(
+      "Master password changed, but key unlock failed. Please log out and log in again.",
+      true
+    );
+    return;
+  }
+
   // Keep session active and do not touch saved accounts.
-  // (On main, site-password XOR uses XOR_KEY in source — changing master does not re-encrypt vault.)
   setSession(currentUsername);
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
   resetChangeMasterPasswordVisibility();
 });
 
-loginForm.addEventListener("submit", function (e) {
+loginForm.addEventListener("submit", async function (e) {
   e.preventDefault();
   const username = document.getElementById("loginUser").value.trim();
   const password = loginPass.value;
@@ -1300,10 +1369,16 @@ loginForm.addEventListener("submit", function (e) {
     setAuthMessage("Wrong username or password.", true);
     return;
   }
+  try {
+    await activateEncryptionKeyForUser(found.username, password);
+  } catch (error) {
+    setAuthMessage("Could not derive encryption key in this browser.", true);
+    return;
+  }
   showApp(found.username);
 });
 
-signupForm.addEventListener("submit", function (e) {
+signupForm.addEventListener("submit", async function (e) {
   e.preventDefault();
   const username = document.getElementById("signupUser").value.trim();
   const pass = signupPass.value;
@@ -1339,6 +1414,8 @@ signupForm.addEventListener("submit", function (e) {
     username: username,
     // Store password hash only (never raw master password).
     passwordHash: hashMasterPassword(username, pass),
+    // Store only random salt; derived key is created after login and kept in memory.
+    kdfSalt: generateRandomSaltBase64(),
   };
   const nextUsers = users.concat([newUser]);
   try {
@@ -1348,6 +1425,12 @@ signupForm.addEventListener("submit", function (e) {
     saveAccountsMap(map);
   } catch (err) {
     setAuthMessage("Could not save to browser storage (localStorage). Check browser privacy settings.", true);
+    return;
+  }
+  try {
+    await activateEncryptionKeyForUser(username, pass);
+  } catch (error) {
+    setAuthMessage("Account created, but key setup failed. Try logging in again.", true);
     return;
   }
   showApp(username);
@@ -1402,7 +1485,7 @@ simulateLoginForm.addEventListener("submit", function (e) {
   try {
     savedPassword = decryptPassword(selectedAccount.encryptedPassword || "");
   } catch (err) {
-    setSimulateMessage("Could not decrypt this password (invalid or corrupt saved data).", true);
+    setSimulateMessage("Please log in again to decrypt passwords.", true);
     return;
   }
   const enc = selectedAccount.encryptedPassword || "";
@@ -1539,7 +1622,7 @@ editAccountForm.addEventListener("submit", function (e) {
   try {
     nextEncrypted = encryptPassword(nextPassword);
   } catch (err) {
-    setStatus("Could not encrypt the new password. Try again.", true);
+    setStatus("Please log in again to edit passwords.", true);
     return;
   }
 
