@@ -375,6 +375,12 @@ h1 {
   font-family: Consolas, monospace;
 }
 
+.password-text.password-missing {
+  color: var(--muted);
+  font-style: italic;
+  font-family: inherit;
+}
+
 .eye-btn {
   border: 1px solid var(--input-border);
   background: var(--surface-soft);
