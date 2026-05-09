@@ -64,8 +64,10 @@ const generatedPassPreview = document.getElementById("generatedPassPreview");
 
 // Stores the currently logged-in username in memory while the page is open.
 let currentUsername = null;
-// Stores the derived encryption key bytes only in memory for this browser session.
-// The key is NEVER saved to localStorage and is not hardcoded in this file.
+// Derived site-password encryption key (PBKDF2 output) — exists only in RAM for this tab
+// session after a successful login. It is NOT written to localStorage and NOT embedded
+// in script.js, so a thief who only copies your repo or localStorage still lacks the
+// secret that actually decrypts saved site passwords (they need your master password too).
 let activeEncryptionKeyBytes = null;
 // Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
@@ -292,14 +294,17 @@ function setAccountsForUser(username, accounts) {
   saveAccountsMap(map);
 }
 
-// --- Key derivation + encryption helpers ---
-// Stronger demo approach:
-// - No fixed encryption key is stored in code.
-// - The key is derived from the entered master password + per-user random salt.
-// - Only salt is saved in localStorage; derived key lives in memory only.
-// - Without the correct master password, saved passwords cannot be decrypted correctly.
-// This helps protect against someone reading script.js or localStorage.
-// Real password managers use stronger, battle-tested algorithms and hardened key management.
+// --- Key derivation + encryption helpers (harder-to-steal than a hardcoded XOR key) ---
+// Why this is harder for an attacker to "steal the key":
+// - There is no single secret byte string in source code that unlocks every vault. The
+//   encryption key is computed from (master password + per-user salt) at login time.
+// - Only the salt (and a separate login hash) persist in localStorage — not the key.
+//   Guessing the key from storage alone is not enough; offline guessing targets the
+//   master password through slow PBKDF2 (many iterations, SHA-256).
+// - Even with this file and a localStorage dump, ciphertext stays opaque without the
+//   correct master password to re-derive the same key (contrast: demo branch XOR_KEY).
+// Site passwords are still XOR'd with the derived bytes here (teaching XOR); production
+// apps would use AES-GCM or similar. Log out to clear the in-memory key.
 function bytesToBase64(bytes) {
   var binary = "";
   for (var i = 0; i < bytes.length; i++) {
@@ -366,17 +371,6 @@ function encryptPassword(plainText) {
   return ENCRYPTED_PREFIX_V2 + bytesToBase64(encryptedBytes);
 }
 
-function legacyDecryptFixedKey(encryptedText) {
-  // Backward compatibility for old saved records created before key derivation.
-  // This path is used only to read old data and can be removed after migration.
-  const legacyKeyCode = 75;
-  var out = "";
-  for (var i = 0; i < encryptedText.length; i++) {
-    out += String.fromCharCode(encryptedText.charCodeAt(i) ^ legacyKeyCode);
-  }
-  return out;
-}
-
 function decryptPassword(storedValue) {
   const encryptedText = storedValue || "";
   if (!encryptedText) {
@@ -391,7 +385,7 @@ function decryptPassword(storedValue) {
     const plainBytes = xorBytes(encryptedBytes, activeEncryptionKeyBytes);
     return new TextDecoder().decode(plainBytes);
   }
-  return legacyDecryptFixedKey(encryptedText);
+  return "";
 }
 
 // --- Strong password: 8+, lower, upper, digit, symbol ---
