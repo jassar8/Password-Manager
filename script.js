@@ -601,20 +601,41 @@ function getWebsiteIcon(siteName, normalizedWebsite) {
   return iconKey ? KNOWN_SITE_ICONS[iconKey] : "🌐";
 }
 
+// Shown in account cards while the site password is hidden (each card toggles on its own).
+const ACCOUNT_PASSWORD_MASK = "••••••••";
+
 // --- Build one row in the saved accounts list ---
 // Real autofill on external websites needs a browser extension.
 // This web app uses safe redirection + copy buttons as autofill simulation.
 function buildAccountCard(account) {
   const li = document.createElement("li");
   li.className = "account-card";
+  if (account.id) {
+    li.dataset.accountId = account.id;
+  }
   const siteName = account.siteName || "Unknown site";
   const websiteUrl = safeUrl(account.websiteUrl);
   const normalizedWebsite = account.normalizedWebsite || normalizeUrl(account.websiteUrl);
   const username =
     account.username != null && account.username !== "" ? account.username : "-";
   const encryptedPassword = account.encryptedPassword || "";
-  // Decrypt only in memory for UI display/copy actions.
-  const decryptedPassword = decryptPassword(encryptedPassword);
+
+  // Lazy decrypt: avoids throwing during render if the derived key is not in memory yet,
+  // and lets the eye button decrypt only when needed. Each card keeps its own cache.
+  var plainResolved = false;
+  var cachedPlainPassword = "";
+  function resolvePlainPasswordForCard() {
+    if (plainResolved) {
+      return { ok: true, plain: cachedPlainPassword };
+    }
+    try {
+      cachedPlainPassword = decryptPassword(encryptedPassword);
+      plainResolved = true;
+      return { ok: true, plain: cachedPlainPassword };
+    } catch (err) {
+      return { ok: false, plain: "" };
+    }
+  }
 
   const cardHeader = document.createElement("div");
   cardHeader.className = "account-header";
@@ -666,19 +687,35 @@ function buildAccountCard(account) {
   passLabel.textContent = "Password: ";
   const passValue = document.createElement("span");
   passValue.className = "password-text";
-  passValue.textContent = "••••••••";
+  passValue.textContent = ACCOUNT_PASSWORD_MASK;
   const eyeBtn = document.createElement("button");
   eyeBtn.type = "button";
   eyeBtn.className = "eye-btn";
   eyeBtn.textContent = "👁";
   eyeBtn.setAttribute("aria-label", "Show password");
+  eyeBtn.setAttribute("aria-pressed", "false");
 
-  var isVisible = false;
+  // Per-card toggle only: this closure is not shared with other cards.
+  var passwordRevealed = false;
   eyeBtn.addEventListener("click", function () {
-    isVisible = !isVisible;
-    passValue.textContent = isVisible ? decryptedPassword : "••••••••";
-    eyeBtn.textContent = isVisible ? "🙈" : "👁";
-    eyeBtn.setAttribute("aria-label", isVisible ? "Hide password" : "Show password");
+    if (!passwordRevealed) {
+      var reveal = resolvePlainPasswordForCard();
+      if (!reveal.ok) {
+        setStatus("Please log in again to decrypt passwords.", true);
+        return;
+      }
+      passValue.textContent = reveal.plain ? reveal.plain : "(no password stored)";
+      passwordRevealed = true;
+      eyeBtn.textContent = "🙈";
+      eyeBtn.setAttribute("aria-label", "Hide password");
+      eyeBtn.setAttribute("aria-pressed", "true");
+    } else {
+      passValue.textContent = ACCOUNT_PASSWORD_MASK;
+      passwordRevealed = false;
+      eyeBtn.textContent = "👁";
+      eyeBtn.setAttribute("aria-label", "Show password");
+      eyeBtn.setAttribute("aria-pressed", "false");
+    }
   });
 
   passLine.appendChild(passLabel);
@@ -726,7 +763,12 @@ function buildAccountCard(account) {
   copyPassBtn.textContent = "Copy Password";
   copyPassBtn.setAttribute("aria-label", "Copy password");
   copyPassBtn.addEventListener("click", function () {
-    copyTextToClipboard(decryptedPassword)
+    var copyResult = resolvePlainPasswordForCard();
+    if (!copyResult.ok) {
+      setStatus("Please log in again to decrypt passwords.", true);
+      return;
+    }
+    copyTextToClipboard(copyResult.plain || "")
       .then(function () {
         setStatus("Password copied", false);
       })
