@@ -1,6 +1,12 @@
 /**
  * Password Manager — offline web app (no server, no fetch).
  * Open index.html in your browser; data is stored in localStorage.
+ *
+ * Git branch: feature/harder-to-steal-derived-key (safer teaching build).
+ * Site passwords are encrypted with a key derived (PBKDF2 + salt) from the master
+ * password after login. Only the salt is stored in localStorage — no hardcoded XOR
+ * key in this file. Compare with branch main for the intentionally weak XOR demo.
+ * Same UI and features as main; only encryption key handling differs.
  */
 
 // --- Keys for localStorage (change only if you want a fresh empty app) ---
