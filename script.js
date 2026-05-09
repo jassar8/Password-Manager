@@ -4,6 +4,20 @@
  */
 
 // --- Keys for localStorage (change only if you want a fresh empty app) ---
+//
+// EDUCATIONAL / DEMO ONLY — INSECURE PATTERN
+// -----------------------------------------
+// Why storing a fixed XOR key in script.js is unsafe:
+// - The browser downloads this entire file. Anyone (or any script) can read it, so the
+//   "secret" key is public. There is no real secrecy: security through obscurity fails
+//   as soon as someone views source, saves the page, or runs static analysis.
+// - How a hacker could read the key: open DevTools → Sources, or open script.js in the
+//   repo, or search the file for "XOR_KEY". The key is a plain string literal.
+// - If they also obtain localStorage (malware, physical access, XSS, backup), they can
+//   XOR each stored ciphertext with this same key and recover every site password.
+// - XOR with a repeating single-byte key is also weak cryptography even if the key were
+//   secret (patterns leak; not authenticated).
+// This branch exists only to contrast with feature/secure-master-key-encryption on purpose.
 const XOR_KEY = "K";
 const LS_USERS = "pm_web_users_v1";
 const LS_ACCOUNTS = "pm_web_accounts_map_v1";
@@ -286,7 +300,10 @@ function setAccountsForUser(username, accounts) {
 // 1) Convert key character to its ASCII/Unicode number.
 // 2) For every text character, XOR charCode with keyCode.
 // 3) Convert result back to character and append to output.
-// NOTE: XOR is for demo/learning only and not secure for real production encryption.
+//
+// NOTE: This is for classroom / lab demonstration only. Combined with XOR_KEY above,
+// it teaches why "encryption" that ships the key next to the ciphertext is broken.
+// Do not copy this pattern into production software.
 function xorEncrypt(text, key) {
   if (!text) {
     return "";
@@ -1332,7 +1349,25 @@ addAccountForm.addEventListener("submit", function (e) {
   loadAccounts();
 });
 
+// Visible XOR demo (see #xorRiskDemoSection in index.html): fills example plain/cipher text.
+function initXorRiskDemoPanel() {
+  const plainEl = document.getElementById("xorDemoPlain");
+  const cipherEl = document.getElementById("xorDemoCipher");
+  const keyLine = document.getElementById("xorDemoKeyLocation");
+  if (!plainEl || !cipherEl) {
+    return;
+  }
+  const examplePlain = "MyBankP@ss99!";
+  plainEl.textContent = examplePlain;
+  cipherEl.textContent = xorEncrypt(examplePlain, XOR_KEY);
+  if (keyLine) {
+    keyLine.textContent =
+      'Top of script.js → const XOR_KEY = "' + XOR_KEY + "\";  (anyone reading the file sees this.)";
+  }
+}
+
 // App entry point: try restoring previous session, otherwise show auth page.
+initXorRiskDemoPanel();
 createPasswordStrengthMeter(signupPass);
 createPasswordStrengthMeter(addAccountPass);
 createPasswordStrengthMeter(newMasterPass);

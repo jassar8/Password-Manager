@@ -13,6 +13,23 @@
       <p class="subtitle">Offline-first project using localStorage, encryption demo, and strong password rules.</p>
     </header>
 
+    <section class="xor-risk-demo card" id="xorRiskDemoSection" aria-labelledby="xorRiskDemoHeading">
+      <h2 class="section-title" id="xorRiskDemoHeading">Educational demo: hardcoded XOR key</h2>
+      <p class="xor-risk-intro">
+        You are on Git branch <code>demo/xor-hardcoded-key-risk</code>. This version keeps a <strong>fixed XOR key inside the JavaScript file</strong> on purpose so you can see why that is dangerous. Use it only for learning; never ship real passwords this way.
+      </p>
+      <ul class="xor-risk-list">
+        <li><strong>Where the key lives:</strong> <span id="xorDemoKeyLocation"></span></li>
+        <li><strong>How an attacker finds it:</strong> View page source, open <code>script.js</code> in the project, or search for <code>XOR_KEY</code> — the key is a normal string in code, not hidden.</li>
+        <li><strong>What they do next:</strong> Copy encrypted blobs from <code>localStorage</code> (or from an export) and run the same XOR operation with that key to reveal the original passwords.</li>
+      </ul>
+      <div class="xor-risk-example">
+        <p><strong>Example plain site password:</strong> <code id="xorDemoPlain"></code></p>
+        <p><strong>How it looks after XOR encryption (still useless secrecy if the key is public):</strong></p>
+        <p class="mono-block" id="xorDemoCipher"></p>
+      </div>
+    </section>
+
     <section id="authSection" class="panel auth-panel">
       <div class="auth-card card">
       <div id="loginBlock">
