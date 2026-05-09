@@ -299,13 +299,6 @@ function saveAccountsMap(map) {
   writeJson(LS_ACCOUNTS, map);
 }
 
-function getAccountsForUser(username) {
-  const map = getAccountsMap();
-  const key = String(username).trim().toLowerCase();
-  const list = map[key];
-  return Array.isArray(list) ? list.slice() : [];
-}
-
 function setAccountsForUser(username, accounts) {
   const map = getAccountsMap();
   const key = String(username).trim().toLowerCase();
@@ -407,6 +400,77 @@ function decryptPassword(storedValue) {
   return "";
 }
 
+// --- One saved-account shape: always use encryptedPassword in localStorage ---
+// Older data may use password, encryptedPass, or encrypted_password — merge into encryptedPassword.
+function migrateUserAccountsList(accounts) {
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    return { accounts: accounts || [], changed: false };
+  }
+  var keyReady = !!(activeEncryptionKeyBytes && activeEncryptionKeyBytes.length);
+  var changed = false;
+  var next = accounts.map(function (acct) {
+    var row = Object.assign({}, acct);
+    var raw = "";
+    if (row.encryptedPassword != null && String(row.encryptedPassword).trim() !== "") {
+      raw = String(row.encryptedPassword);
+    } else if (row.encryptedPass != null && String(row.encryptedPass).trim() !== "") {
+      raw = String(row.encryptedPass);
+      changed = true;
+    } else if (row.encrypted_password != null && String(row.encrypted_password).trim() !== "") {
+      raw = String(row.encrypted_password);
+      changed = true;
+    } else if (row.password != null && String(row.password).trim() !== "") {
+      raw = String(row.password);
+      changed = true;
+    }
+
+    if (row.password != null || row.encryptedPass != null || row.encrypted_password != null) {
+      changed = true;
+    }
+    delete row.password;
+    delete row.encryptedPass;
+    delete row.encrypted_password;
+
+    var encOut = "";
+    if (raw.indexOf(ENCRYPTED_PREFIX_V2) === 0) {
+      encOut = raw;
+    } else if (raw.length > 0) {
+      if (keyReady) {
+        try {
+          encOut = encryptPassword(raw);
+          changed = true;
+        } catch (e) {
+          encOut = "";
+          changed = true;
+        }
+      } else {
+        encOut = "";
+        changed = true;
+      }
+    }
+
+    if (row.encryptedPassword !== encOut) {
+      changed = true;
+    }
+    row.encryptedPassword = encOut;
+    return row;
+  });
+  return { accounts: next, changed: changed };
+}
+
+function getAccountsForUser(username) {
+  const map = getAccountsMap();
+  const key = String(username).trim().toLowerCase();
+  const list = map[key];
+  const rawList = Array.isArray(list) ? list.slice() : [];
+  const mig = migrateUserAccountsList(rawList);
+  if (mig.changed) {
+    map[key] = mig.accounts;
+    saveAccountsMap(map);
+  }
+  return mig.accounts;
+}
+
 // --- Strong password: 8+, lower, upper, digit, symbol ---
 // Returns true only if password matches all required strength rules.
 function isStrongPassword(password) {
@@ -476,13 +540,17 @@ function getDemoAccountTemplates() {
 
 function createDemoAccount(template, idx) {
   const plainPassword = generateStrongPassword();
+  const enc = encryptPassword(plainPassword);
+  if (!enc || enc.indexOf(ENCRYPTED_PREFIX_V2) !== 0) {
+    throw new Error("Demo account must store a v2 ciphertext in encryptedPassword.");
+  }
   return {
     id: "demo-" + Date.now().toString() + "-" + (idx + 1),
     siteName: template.siteName,
     websiteUrl: template.websiteUrl,
     username: template.username,
-    // Save encrypted password (not plain text) in localStorage record.
-    encryptedPassword: encryptPassword(plainPassword),
+    // Single field for stored site password (ciphertext only).
+    encryptedPassword: enc,
     normalizedWebsite: normalizeUrl(template.websiteUrl),
   };
 }
@@ -490,6 +558,9 @@ function createDemoAccount(template, idx) {
 // Keep demo data helpful for first use: if user has fewer than 10 accounts,
 // add only missing demo entries and never overwrite existing user accounts.
 function ensureMinimumDemoAccounts(username) {
+  if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
+    return 0;
+  }
   const accounts = getAccountsForUser(username);
   if (accounts.length >= 10) {
     return 0;
@@ -513,7 +584,11 @@ function ensureMinimumDemoAccounts(username) {
     if (normalized && existingSites[normalized]) {
       continue;
     }
-    accounts.push(createDemoAccount(template, i));
+    try {
+      accounts.push(createDemoAccount(template, i));
+    } catch (demoErr) {
+      continue;
+    }
     if (normalized) {
       existingSites[normalized] = true;
     }
@@ -631,7 +706,9 @@ function buildAccountCard(account) {
   const normalizedWebsite = account.normalizedWebsite || normalizeUrl(account.websiteUrl);
   const username =
     account.username != null && account.username !== "" ? account.username : "-";
-  const encryptedPassword = account.encryptedPassword || "";
+  // After load, every account should only use encryptedPassword (migration fixes older keys).
+  const encryptedPayload = account.encryptedPassword || "";
+  const hasV2Cipher = encryptedPayload.indexOf(ENCRYPTED_PREFIX_V2) === 0;
 
   // Lazy decrypt: avoids throwing during render if the derived key is not in memory yet,
   // and lets the eye button decrypt only when needed. Each card keeps its own cache.
@@ -639,14 +716,17 @@ function buildAccountCard(account) {
   var cachedPlainPassword = "";
   function resolvePlainPasswordForCard() {
     if (plainResolved) {
-      return { ok: true, plain: cachedPlainPassword };
+      return { ok: true, plain: cachedPlainPassword, missingCipher: false };
+    }
+    if (!hasV2Cipher) {
+      return { ok: true, plain: "", missingCipher: true };
     }
     try {
-      cachedPlainPassword = decryptPassword(encryptedPassword);
+      cachedPlainPassword = decryptPassword(encryptedPayload);
       plainResolved = true;
-      return { ok: true, plain: cachedPlainPassword };
+      return { ok: true, plain: cachedPlainPassword, missingCipher: false };
     } catch (err) {
-      return { ok: false, plain: "" };
+      return { ok: false, plain: "", missingCipher: false };
     }
   }
 
@@ -700,24 +780,42 @@ function buildAccountCard(account) {
   passLabel.textContent = "Password: ";
   const passValue = document.createElement("span");
   passValue.className = "password-text";
-  passValue.textContent = ACCOUNT_PASSWORD_MASK;
+  if (!hasV2Cipher) {
+    passValue.textContent = "(No encrypted password — use Edit to add one)";
+    passValue.classList.add("password-missing");
+  } else {
+    passValue.textContent = ACCOUNT_PASSWORD_MASK;
+  }
   const eyeBtn = document.createElement("button");
   eyeBtn.type = "button";
   eyeBtn.className = "eye-btn";
   eyeBtn.textContent = "👁";
   eyeBtn.setAttribute("aria-label", "Show password");
   eyeBtn.setAttribute("aria-pressed", "false");
+  if (!hasV2Cipher) {
+    eyeBtn.disabled = true;
+    eyeBtn.title = "Add a password using Edit";
+  }
 
   // Per-card toggle only: this closure is not shared with other cards.
   var passwordRevealed = false;
   eyeBtn.addEventListener("click", function () {
+    if (!hasV2Cipher) {
+      setStatus("This account has no encrypted password. Use Edit to add one.", true);
+      return;
+    }
     if (!passwordRevealed) {
       var reveal = resolvePlainPasswordForCard();
       if (!reveal.ok) {
         setStatus("Please log in again to decrypt passwords.", true);
         return;
       }
-      passValue.textContent = reveal.plain ? reveal.plain : "(no password stored)";
+      if (reveal.missingCipher) {
+        setStatus("This account has no encrypted password. Use Edit to add one.", true);
+        return;
+      }
+      passValue.classList.remove("password-missing");
+      passValue.textContent = reveal.plain === "" ? "(empty password)" : reveal.plain;
       passwordRevealed = true;
       eyeBtn.textContent = "🙈";
       eyeBtn.setAttribute("aria-label", "Hide password");
@@ -776,9 +874,17 @@ function buildAccountCard(account) {
   copyPassBtn.textContent = "Copy Password";
   copyPassBtn.setAttribute("aria-label", "Copy password");
   copyPassBtn.addEventListener("click", function () {
+    if (!hasV2Cipher) {
+      setStatus("This account has no encrypted password. Use Edit to add one.", true);
+      return;
+    }
     var copyResult = resolvePlainPasswordForCard();
     if (!copyResult.ok) {
       setStatus("Please log in again to decrypt passwords.", true);
+      return;
+    }
+    if (copyResult.missingCipher) {
+      setStatus("This account has no encrypted password. Use Edit to add one.", true);
       return;
     }
     copyTextToClipboard(copyResult.plain || "")
@@ -1374,8 +1480,19 @@ simulateLoginForm.addEventListener("submit", function (e) {
   }
 
   const savedUsername = (selectedAccount.username || "").trim();
-  // Simulate login compares typed password to decrypted stored site password.
-  const savedPassword = decryptPassword(selectedAccount.encryptedPassword || "");
+  // Simulate login compares typed password to decrypted stored site password (encryptedPassword only).
+  var savedPassword = "";
+  try {
+    savedPassword = decryptPassword(selectedAccount.encryptedPassword || "");
+  } catch (err) {
+    setSimulateMessage("Please log in again to decrypt passwords.", true);
+    return;
+  }
+  const enc = selectedAccount.encryptedPassword || "";
+  if (enc.indexOf(ENCRYPTED_PREFIX_V2) !== 0) {
+    setSimulateMessage("This saved site has no encrypted password. Use Edit to add one.", true);
+    return;
+  }
   const isMatch = enteredUsername === savedUsername && enteredPassword === savedPassword;
 
   if (isMatch) {
