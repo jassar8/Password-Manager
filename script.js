@@ -1,6 +1,13 @@
 /**
  * Password Manager — offline web app (no server, no fetch).
  * Open index.html in your browser; data is stored in localStorage.
+ *
+ * Git branch: main (default).
+ * This branch is the INTENTIONALLY WEAK / EDUCATIONAL build: site passwords are XOR’d
+ * with a hardcoded XOR_KEY below so you can show how an attacker finds the key in code.
+ * For the safer version (master-password-derived key, salt in localStorage), use:
+ *   git switch feature/harder-to-steal-derived-key
+ * Same UI and features on both branches — only encryption key handling differs.
  */
 
 // --- Keys for localStorage (change only if you want a fresh empty app) ---
@@ -10,11 +17,13 @@ const LS_SESSION = "pm_web_session_v1";
 const LS_THEME = "pm_web_theme_v1";
 const ENCRYPTED_PREFIX_V2 = "v2:";
 
-// --- EDUCATIONAL ONLY: hardcoded XOR "key" in source (insecure) ---
-// Anyone can open this file (or DevTools → Sources) and search for XOR_KEY. The same
-// bytes XOR every saved site password, so learning the key means decrypting all vault
-// data from localStorage or an export. XOR with a tiny repeating key is also weak crypto.
-// This branch is intentionally weak to teach the difference vs. feature/harder-to-steal-derived-key.
+// --- EDUCATIONAL ONLY: hardcoded XOR "key" in source (insecure — not for real secrets) ---
+// Why this is unsafe for production:
+// - The key is shipped with the app. View Source, DevTools, or the repo search finds XOR_KEY.
+// - Anyone with that key + your stored ciphertext (localStorage, backup, XSS) can recover
+//   every site password by XORing again — no master password needed for decryption.
+// - Single-byte XOR is trivially weak even if the key were secret (patterns leak).
+// This exists only so instructors can contrast main vs. feature/harder-to-steal-derived-key.
 const XOR_KEY = "K";
 
 // --- Page elements ---
