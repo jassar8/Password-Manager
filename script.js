@@ -10,7 +10,10 @@ const LS_SESSION = "pm_web_session_v1";
 const LS_THEME = "pm_web_theme_v1";
 const KDF_ITERATIONS = 210000;
 const KDF_HASH = "SHA-256";
+// v2 = XOR stream using PBKDF2-derived key (kept for reading older saved rows).
 const ENCRYPTED_PREFIX_V2 = "v2:";
+// v3 = AES-256-GCM using the same derived key (authenticated encryption; preferred).
+const ENCRYPTED_PREFIX_V3 = "v3:";
 
 // --- Page elements ---
 const authSection = document.getElementById("authSection");
@@ -67,6 +70,8 @@ let currentUsername = null;
 // Stores the derived encryption key bytes only in memory for this browser session.
 // The key is NEVER saved to localStorage and is not hardcoded in this file.
 let activeEncryptionKeyBytes = null;
+// AES-GCM CryptoKey imported from activeEncryptionKeyBytes; also session-only, never persisted.
+let activeAesGcmCryptoKey = null;
 // Stores the last generated strong password so user can reuse it quickly.
 let lastGeneratedPassword = "";
 
@@ -292,14 +297,23 @@ function setAccountsForUser(username, accounts) {
   saveAccountsMap(map);
 }
 
-// --- Key derivation + encryption helpers ---
-// Stronger demo approach:
-// - No fixed encryption key is stored in code.
-// - The key is derived from the entered master password + per-user random salt.
-// - Only salt is saved in localStorage; derived key lives in memory only.
-// - Without the correct master password, saved passwords cannot be decrypted correctly.
-// This helps protect against someone reading script.js or localStorage.
-// Real password managers use stronger, battle-tested algorithms and hardened key management.
+// --- Key derivation + encryption helpers (Web Crypto API) ---
+// Why this is more secure than a hardcoded XOR key in source code:
+// 1) Secret in the user's head: the encryption key material is derived from the master
+//    password, which never gets written to disk. An attacker with only script.js or a copy
+//    of localStorage still lacks the password, so they cannot re-derive the key.
+// 2) Salt per user: PBKDF2 uses a random salt (stored in localStorage) so identical
+//    master passwords across users do not produce identical keys, and rainbow tables
+//    against the key derivation output are not reusable.
+// 3) Slow derivation: many PBKDF2 iterations (SHA-256) deliberately slow down guessing
+//    attacks if someone tries to brute-force weak master passwords offline.
+// 4) Minimal persistence: only the salt and password *hash* are stored; the derived key
+//    and raw master password exist only in memory for this tab session, reducing exposure
+//    if the device is later compromised without the user logging in again.
+// 5) AES-GCM (v3): provides confidentiality and integrity (tampering is detected). Older
+//    v2 rows used XOR with the derived key only for backward compatibility — not ideal
+//    cryptography, but still no fixed key in the file.
+// Production password managers add more: audited code, secure enclaves, Argon2, etc.
 function bytesToBase64(bytes) {
   var binary = "";
   for (var i = 0; i < bytes.length; i++) {
@@ -354,33 +368,50 @@ function xorBytes(inputBytes, keyBytes) {
   return out;
 }
 
-function encryptPassword(plainText) {
+async function encryptPassword(plainText) {
   if (!plainText) {
     return "";
   }
-  if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
+  if (!activeAesGcmCryptoKey) {
     throw new Error("Encryption key is not active in memory.");
   }
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
   const plainBytes = new TextEncoder().encode(plainText);
-  const encryptedBytes = xorBytes(plainBytes, activeEncryptionKeyBytes);
-  return ENCRYPTED_PREFIX_V2 + bytesToBase64(encryptedBytes);
+  const cipherBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    activeAesGcmCryptoKey,
+    plainBytes
+  );
+  const cipherBytes = new Uint8Array(cipherBuffer);
+  const combined = new Uint8Array(iv.length + cipherBytes.length);
+  combined.set(iv, 0);
+  combined.set(cipherBytes, iv.length);
+  return ENCRYPTED_PREFIX_V3 + bytesToBase64(combined);
 }
 
-function legacyDecryptFixedKey(encryptedText) {
-  // Backward compatibility for old saved records created before key derivation.
-  // This path is used only to read old data and can be removed after migration.
-  const legacyKeyCode = 75;
-  var out = "";
-  for (var i = 0; i < encryptedText.length; i++) {
-    out += String.fromCharCode(encryptedText.charCodeAt(i) ^ legacyKeyCode);
-  }
-  return out;
-}
-
-function decryptPassword(storedValue) {
+async function decryptPassword(storedValue) {
   const encryptedText = storedValue || "";
   if (!encryptedText) {
     return "";
+  }
+  if (encryptedText.indexOf(ENCRYPTED_PREFIX_V3) === 0) {
+    if (!activeAesGcmCryptoKey) {
+      throw new Error("Decryption key is not active in memory.");
+    }
+    const payload = encryptedText.slice(ENCRYPTED_PREFIX_V3.length);
+    const combined = base64ToBytes(payload);
+    if (combined.length < 12) {
+      return "";
+    }
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const plainBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv },
+      activeAesGcmCryptoKey,
+      ciphertext
+    );
+    return new TextDecoder().decode(plainBuffer);
   }
   if (encryptedText.indexOf(ENCRYPTED_PREFIX_V2) === 0) {
     if (!activeEncryptionKeyBytes || !activeEncryptionKeyBytes.length) {
@@ -391,7 +422,9 @@ function decryptPassword(storedValue) {
     const plainBytes = xorBytes(encryptedBytes, activeEncryptionKeyBytes);
     return new TextDecoder().decode(plainBytes);
   }
-  return legacyDecryptFixedKey(encryptedText);
+  // No hardcoded XOR fallback: ciphertext without v2:/v3: cannot be unlocked without
+  // the old insecure scheme (see demo/xor-hardcoded-key-risk branch for that lesson).
+  return "";
 }
 
 // --- Strong password: 8+, lower, upper, digit, symbol ---
@@ -461,7 +494,7 @@ function getDemoAccountTemplates() {
   ];
 }
 
-function createDemoAccount(template, idx) {
+async function createDemoAccount(template, idx) {
   const plainPassword = generateStrongPassword();
   return {
     id: "demo-" + Date.now().toString() + "-" + (idx + 1),
@@ -469,14 +502,14 @@ function createDemoAccount(template, idx) {
     websiteUrl: template.websiteUrl,
     username: template.username,
     // Save encrypted password (not plain text) in localStorage record.
-    encryptedPassword: encryptPassword(plainPassword),
+    encryptedPassword: await encryptPassword(plainPassword),
     normalizedWebsite: normalizeUrl(template.websiteUrl),
   };
 }
 
 // Keep demo data helpful for first use: if user has fewer than 10 accounts,
 // add only missing demo entries and never overwrite existing user accounts.
-function ensureMinimumDemoAccounts(username) {
+async function ensureMinimumDemoAccounts(username) {
   const accounts = getAccountsForUser(username);
   if (accounts.length >= 10) {
     return 0;
@@ -500,7 +533,7 @@ function ensureMinimumDemoAccounts(username) {
     if (normalized && existingSites[normalized]) {
       continue;
     }
-    accounts.push(createDemoAccount(template, i));
+    accounts.push(await createDemoAccount(template, i));
     if (normalized) {
       existingSites[normalized] = true;
     }
@@ -604,7 +637,7 @@ function getWebsiteIcon(siteName, normalizedWebsite) {
 // --- Build one row in the saved accounts list ---
 // Real autofill on external websites needs a browser extension.
 // This web app uses safe redirection + copy buttons as autofill simulation.
-function buildAccountCard(account) {
+async function buildAccountCard(account) {
   const li = document.createElement("li");
   li.className = "account-card";
   const siteName = account.siteName || "Unknown site";
@@ -614,7 +647,12 @@ function buildAccountCard(account) {
     account.username != null && account.username !== "" ? account.username : "-";
   const encryptedPassword = account.encryptedPassword || "";
   // Decrypt only in memory for UI display/copy actions.
-  const decryptedPassword = decryptPassword(encryptedPassword);
+  var decryptedPassword = "";
+  try {
+    decryptedPassword = await decryptPassword(encryptedPassword);
+  } catch (err) {
+    decryptedPassword = "[Could not decrypt — check master password or data]";
+  }
 
   const cardHeader = document.createElement("div");
   cardHeader.className = "account-header";
@@ -741,7 +779,7 @@ function buildAccountCard(account) {
   editBtn.textContent = "Edit";
   editBtn.setAttribute("aria-label", "Edit account");
   editBtn.addEventListener("click", function () {
-    editAccount(account.id);
+    void editAccount(account.id);
   });
 
   const deleteBtn = document.createElement("button");
@@ -797,11 +835,11 @@ function deleteAccount(accountId) {
   });
   setAccountsForUser(currentUsername, nextAccounts);
   setStatus("Account deleted.", false);
-  loadAccounts();
+  void loadAccounts();
 }
 
 // --- Edit one account with simple prompts (beginner-friendly) ---
-function editAccount(accountId) {
+async function editAccount(accountId) {
   if (!currentUsername) {
     return;
   }
@@ -819,7 +857,13 @@ function editAccount(accountId) {
   const currentWebsiteUrl = account.websiteUrl || "";
   const currentUsernameOnSite = account.username || "";
   // Convert encrypted stored value back to plain text so user can edit it.
-  const currentPassword = decryptPassword(account.encryptedPassword || "");
+  var currentPassword = "";
+  try {
+    currentPassword = await decryptPassword(account.encryptedPassword || "");
+  } catch (err) {
+    setStatus("Could not decrypt that account's password.", true);
+    return;
+  }
 
   const nextSiteNameInput = window.prompt("Edit site name:", currentSiteName);
   if (nextSiteNameInput === null) {
@@ -865,12 +909,19 @@ function editAccount(accountId) {
     return;
   }
 
+  var nextEncrypted;
+  try {
+    nextEncrypted = await encryptPassword(nextPassword);
+  } catch (err) {
+    setStatus("Could not encrypt updated password.", true);
+    return;
+  }
   const updatedAccount = {
     id: account.id,
     siteName: nextSiteName,
     websiteUrl: nextWebsiteUrl,
     username: nextUsername,
-    encryptedPassword: encryptPassword(nextPassword),
+    encryptedPassword: nextEncrypted,
     normalizedWebsite: nextNormalizedWebsite,
   };
 
@@ -895,7 +946,7 @@ function editAccount(accountId) {
   accounts[index] = updatedAccount;
   setAccountsForUser(currentUsername, accounts);
   setStatus("Account updated.", false);
-  loadAccounts();
+  await loadAccounts();
 }
 
 function refreshSimulateSiteOptions(accounts) {
@@ -915,7 +966,7 @@ function refreshSimulateSiteOptions(accounts) {
   });
 }
 
-function loadAccounts() {
+async function loadAccounts() {
   if (!currentUsername) {
     return;
   }
@@ -938,9 +989,9 @@ function loadAccounts() {
     return;
   }
   noResultsText.classList.add("hidden");
-  filteredAccounts.forEach(function (account) {
-    accountsList.appendChild(buildAccountCard(account));
-  });
+  for (var i = 0; i < filteredAccounts.length; i++) {
+    accountsList.appendChild(await buildAccountCard(filteredAccounts[i]));
+  }
   setStatus(
     "Showing " + filteredAccounts.length + " of " + accounts.length + " account(s) from localStorage.",
     false
@@ -952,6 +1003,7 @@ function showAuth() {
   // Auth-page mode: show only Login/Sign Up blocks and hide full dashboard/app panel.
   currentUsername = null;
   activeEncryptionKeyBytes = null;
+  activeAesGcmCryptoKey = null;
   appSection.classList.add("hidden");
   authSection.classList.remove("hidden");
   loginBlock.hidden = false;
@@ -978,7 +1030,7 @@ function showAuth() {
   resetChangeMasterPasswordVisibility();
 }
 
-function showApp(username) {
+async function showApp(username) {
   // App-page mode: hide auth panel and show dashboard sections only after sign-in.
   currentUsername = username;
   setSession(username);
@@ -1002,11 +1054,11 @@ function showApp(username) {
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
   resetChangeMasterPasswordVisibility();
-  const addedDemoCount = ensureMinimumDemoAccounts(username);
+  const addedDemoCount = await ensureMinimumDemoAccounts(username);
   if (addedDemoCount > 0) {
     setStatus("Added " + addedDemoCount + " demo account(s) to reach 10 total.", false);
   }
-  loadAccounts();
+  await loadAccounts();
 }
 
 async function activateEncryptionKeyForUser(username, masterPassword) {
@@ -1020,6 +1072,13 @@ async function activateEncryptionKeyForUser(username, masterPassword) {
     saveUsers(users);
   }
   activeEncryptionKeyBytes = await deriveEncryptionKeyBytes(masterPassword, users[userIndex].kdfSalt);
+  activeAesGcmCryptoKey = await crypto.subtle.importKey(
+    "raw",
+    activeEncryptionKeyBytes,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
 }
 
 function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
@@ -1247,7 +1306,7 @@ loginForm.addEventListener("submit", async function (e) {
     setAuthMessage("Could not derive encryption key in this browser.", true);
     return;
   }
-  showApp(found.username);
+  await showApp(found.username);
 });
 
 signupForm.addEventListener("submit", async function (e) {
@@ -1305,7 +1364,7 @@ signupForm.addEventListener("submit", async function (e) {
     setAuthMessage("Account created, but key setup failed. Try logging in again.", true);
     return;
   }
-  showApp(username);
+  await showApp(username);
 });
 
 logoutBtn.addEventListener("click", function () {
@@ -1316,7 +1375,7 @@ logoutBtn.addEventListener("click", function () {
 });
 
 refreshBtn.addEventListener("click", function () {
-  loadAccounts();
+  void loadAccounts();
 });
 
 exportCsvBtn.addEventListener("click", function () {
@@ -1325,14 +1384,14 @@ exportCsvBtn.addEventListener("click", function () {
 
 // Live search instantly filters cards by site name, username, or URL.
 accountSearchInput.addEventListener("input", function () {
-  loadAccounts();
+  void loadAccounts();
 });
 
 themeToggleBtn.addEventListener("click", function () {
   toggleTheme();
 });
 
-simulateLoginForm.addEventListener("submit", function (e) {
+simulateLoginForm.addEventListener("submit", async function (e) {
   e.preventDefault();
   if (!currentUsername) {
     return;
@@ -1353,7 +1412,13 @@ simulateLoginForm.addEventListener("submit", function (e) {
 
   const savedUsername = (selectedAccount.username || "").trim();
   // Simulate login compares typed password to decrypted stored site password.
-  const savedPassword = decryptPassword(selectedAccount.encryptedPassword || "");
+  var savedPassword = "";
+  try {
+    savedPassword = await decryptPassword(selectedAccount.encryptedPassword || "");
+  } catch (err) {
+    setSimulateMessage("Could not verify password (decrypt error).", true);
+    return;
+  }
   const isMatch = enteredUsername === savedUsername && enteredPassword === savedPassword;
 
   if (isMatch) {
@@ -1397,7 +1462,7 @@ btnFillGenerated.addEventListener("click", function () {
   addAccountPass.dispatchEvent(new Event("input"));
 });
 
-addAccountForm.addEventListener("submit", function (e) {
+addAccountForm.addEventListener("submit", async function (e) {
   e.preventDefault();
   if (!currentUsername) {
     return;
@@ -1429,13 +1494,21 @@ addAccountForm.addEventListener("submit", function (e) {
     return;
   }
 
+  var encPass;
+  try {
+    encPass = await encryptPassword(password);
+  } catch (err) {
+    setStatus("Could not encrypt password. Try logging in again.", true);
+    return;
+  }
+
   const newAccount = {
     id: Date.now().toString(),
     siteName: siteName,
     websiteUrl: websiteUrl,
     username: username,
     // Encrypt site password before writing to storage.
-    encryptedPassword: encryptPassword(password),
+    encryptedPassword: encPass,
     normalizedWebsite: normalizedWebsite,
   };
 
@@ -1462,7 +1535,7 @@ addAccountForm.addEventListener("submit", function (e) {
   addAccountPass.type = "password";
   toggleAddPass.textContent = "Show";
   toggleAddPass.setAttribute("aria-pressed", "false");
-  loadAccounts();
+  await loadAccounts();
 });
 
 // App entry point: try restoring previous session, otherwise show auth page.
