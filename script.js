@@ -18,6 +18,10 @@ const KDF_ITERATIONS = 210000;
 const KDF_HASH = "SHA-256";
 const ENCRYPTED_PREFIX_V2 = "v2:";
 
+// TEACHER_EXPLAIN_THIS — Ctrl+Shift+F in this file for: XOR_KEY_CREATED_HERE (PBKDF2 output),
+// NEW_SECURE_METHOD (derive + RAM key), OLD_INSECURE_METHOD (compare branch main / XOR_KEY),
+// ENCRYPTION_START (encryptPassword), DECRYPTION_START (decryptPassword).
+
 // --- Class demo only: logs master password + derived key to the browser console ---
 // Set to false after your presentation. Never enable in a real password manager.
 const LOG_CRYPTO_DEMO_TO_CONSOLE = true;
@@ -110,11 +114,21 @@ const KNOWN_SITE_ICONS = {
 // It also adds a success/error CSS class so UI colors are consistent.
 function setMessageState(element, text, isError) {
   element.textContent = text || "";
-  element.classList.remove("success", "error");
+  element.classList.remove("success", "error", "warning");
   if (!text) {
     return;
   }
   element.classList.add(isError ? "error" : "success");
+}
+
+// Warning style (amber): allows the action but tells the user security is weak.
+function setMessageWarning(element, text) {
+  element.textContent = text || "";
+  element.classList.remove("success", "error", "warning");
+  if (!text) {
+    return;
+  }
+  element.classList.add("warning");
 }
 
 function setAuthMessage(text, isError) {
@@ -221,6 +235,7 @@ function resetChangeMasterPasswordVisibility() {
 }
 
 // --- localStorage read/write (JSON) ---
+// TEACHER_EXPLAIN_THIS — All vault data paths: readJson/writeJson; keys LS_USERS, LS_ACCOUNTS, LS_SESSION, LS_THEME (no sessionStorage).
 // Read and parse JSON from localStorage safely.
 // If key does not exist OR parsing fails, return fallback value.
 function readJson(key, fallback) {
@@ -311,6 +326,9 @@ function setAccountsForUser(username, accounts) {
 }
 
 // --- Derived XOR key for saved site passwords (feature branch — PBKDF2, not hardcoded XOR_KEY) ---
+// OLD_INSECURE_METHOD — On git branch `main`, search XOR_KEY: same v2: wire format, but the XOR
+// keystream comes from a hardcoded string in script.js. Anyone with source or “View Source” gets
+// the key and can decrypt every saved site password from localStorage or an export without the master password.
 //
 // 1) How the user’s master password becomes the XOR key
 //    At login we call deriveEncryptionKeyBytes(masterPassword, salt). The Web Crypto API
@@ -363,6 +381,8 @@ function generateRandomSaltBase64() {
   return bytesToBase64(salt);
 }
 
+// NEW_SECURE_METHOD — Key material for site-password XOR is derived with PBKDF2 from the typed
+// master password + per-user salt; only the salt is persisted (kdfSalt), not the derived bytes.
 async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
   // Turn the typed master password and stored salt into 32 bytes of key material.
   const encoder = new TextEncoder();
@@ -376,6 +396,9 @@ async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
   );
   // Salt and iteration count are parameters to PBKDF2 — same password + different salt
   // yields a different XOR key; high iterations slow down brute-force guessing.
+  // XOR key generated here
+  // Derived from user password
+  // XOR_KEY_CREATED_HERE — 256 bits from PBKDF2 become the 32-byte XOR keystream (see return below).
   const bits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
@@ -399,6 +422,7 @@ function xorBytes(inputBytes, keyBytes) {
 }
 
 function encryptPassword(plainText) {
+  // ENCRYPTION_START — plaintext site password → UTF-8 → xorBytes(..., activeEncryptionKeyBytes) → base64 + v2:
   // Encryption: site password plaintext → XOR with derived key → store as v2: + base64.
   if (!plainText) {
     return "";
@@ -412,6 +436,7 @@ function encryptPassword(plainText) {
 }
 
 function decryptPassword(storedValue) {
+  // DECRYPTION_START — v2: payload → base64 decode → xorBytes(..., activeEncryptionKeyBytes) → UTF-8 plaintext
   // Decryption: v2: + base64 → XOR with same derived key → UTF-8 site password.
   const encryptedText = storedValue || "";
   if (!encryptedText) {
@@ -538,6 +563,12 @@ function getAccountsForUser(username) {
   }
   return mig.accounts;
 }
+
+// Shown when the user chooses a password that fails isStrongPassword (we still allow it).
+const WEAK_MASTER_PASSWORD_WARNING =
+  "Warning: This master password is weak. Use at least 8 characters with lowercase, uppercase, a number, and a symbol for better security.";
+const WEAK_SITE_PASSWORD_WARNING =
+  "Warning: This site password is weak. Use at least 8 characters with lowercase, uppercase, a number, and a symbol if you can.";
 
 // --- Strong password: 8+, lower, upper, digit, symbol ---
 // Returns true only if password matches all required strength rules.
@@ -1206,6 +1237,7 @@ function showApp(username) {
 }
 
 async function activateEncryptionKeyForUser(username, masterPassword) {
+  // NEW_SECURE_METHOD — After successful login/signup, derive key into RAM (activeEncryptionKeyBytes); never write key to localStorage.
   // Loads or creates per-user kdfSalt in localStorage, derives the XOR key from the
   // master password, keeps only the derived bytes in activeEncryptionKeyBytes (RAM).
   const users = getUsers();
@@ -1218,6 +1250,7 @@ async function activateEncryptionKeyForUser(username, masterPassword) {
     saveUsers(users);
   }
   const salt = users[userIndex].kdfSalt;
+  // Used later for encryption/decryption
   activeEncryptionKeyBytes = await deriveEncryptionKeyBytes(masterPassword, salt);
   logCryptoDemoForPresentation(masterPassword, salt);
 }
@@ -1241,20 +1274,17 @@ function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
     return { ok: false, message: "Current master password is incorrect." };
   }
 
-  // Validate new password strength before saving.
-  if (!isStrongPassword(nextPass)) {
-    return {
-      ok: false,
-      message:
-        "New master password must be 8+ characters with lowercase, uppercase, number, and symbol.",
-    };
-  }
+  // Weak master passwords are allowed; UI shows a warning after save.
 
   // Save only new master hash.
   // Account records are in a separate key (LS_ACCOUNTS), so they are not deleted here.
   users[userIndex].passwordHash = hashMasterPassword(users[userIndex].username, nextPass);
   saveUsers(users);
-  return { ok: true, message: "Master password updated successfully" };
+  return {
+    ok: true,
+    message: "Master password updated successfully.",
+    weakPassword: !isStrongPassword(nextPass),
+  };
 }
 
 function tryResumeSession() {
@@ -1394,11 +1424,10 @@ changeMasterForm.addEventListener("submit", async function (e) {
 
   // Beginner-friendly update flow:
   // 1) Check current password by hash comparison
-  // 2) Validate new password strength
-  // 3) Save new hash to users storage
+  // 2) Save new hash (weak passwords allowed; warning on status bar after success)
   const result = updateMasterPasswordForCurrentUser(currentPass, nextPass);
-  setChangeMasterMessage(result.message, !result.ok);
   if (!result.ok) {
+    setChangeMasterMessage(result.message, true);
     return;
   }
 
@@ -1417,8 +1446,13 @@ changeMasterForm.addEventListener("submit", async function (e) {
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
   resetChangeMasterPasswordVisibility();
+  setChangeMasterMessage("", false);
+  if (result.weakPassword) {
+    setMessageWarning(statusText, "Master password updated. " + WEAK_MASTER_PASSWORD_WARNING);
+  }
 });
 
+// TEACHER_EXPLAIN_THIS — Login path: verify hashMasterPassword vs stored passwordHash, then activateEncryptionKeyForUser(password).
 loginForm.addEventListener("submit", async function (e) {
   e.preventDefault();
   const username = document.getElementById("loginUser").value.trim();
@@ -1467,13 +1501,6 @@ signupForm.addEventListener("submit", async function (e) {
     setAuthMessage("Passwords do not match.", true);
     return;
   }
-  if (!isStrongPassword(pass)) {
-    setAuthMessage(
-      "Master password must be 8+ characters with lowercase, uppercase, number, and symbol.",
-      true
-    );
-    return;
-  }
   const users = getUsers();
   const taken = users.some(function (u) {
     return u.username.toLowerCase() === username.toLowerCase();
@@ -1506,6 +1533,15 @@ signupForm.addEventListener("submit", async function (e) {
     return;
   }
   showApp(username);
+  if (!isStrongPassword(pass)) {
+    var existingSignupStatus = (statusText.textContent || "").trim();
+    setMessageWarning(
+      statusText,
+      existingSignupStatus
+        ? existingSignupStatus + " " + WEAK_MASTER_PASSWORD_WARNING
+        : WEAK_MASTER_PASSWORD_WARNING
+    );
+  }
 });
 
 logoutBtn.addEventListener("click", function () {
@@ -1676,13 +1712,6 @@ editAccountForm.addEventListener("submit", function (e) {
     setStatus("Username on site is required.", true);
     return;
   }
-  if (!isStrongPassword(nextPassword)) {
-    setStatus(
-      "Site password must be strong: 8+ chars with lowercase, uppercase, number, and symbol.",
-      true
-    );
-    return;
-  }
 
   const nextNormalizedWebsite = normalizeUrl(nextWebsiteUrl);
   if (nextWebsiteUrl && !nextNormalizedWebsite) {
@@ -1729,10 +1758,13 @@ editAccountForm.addEventListener("submit", function (e) {
   accounts[index] = updatedAccount;
   setAccountsForUser(currentUsername, accounts);
   closeEditAccountModal();
-  if (replacedDuplicate) {
-    setStatus("Replaced existing account for that website (duplicate rule).", false);
+  var editStatusMsg = replacedDuplicate
+    ? "Replaced existing account for that website (duplicate rule)."
+    : "Account updated.";
+  if (!isStrongPassword(nextPassword)) {
+    setMessageWarning(statusText, editStatusMsg + " " + WEAK_SITE_PASSWORD_WARNING);
   } else {
-    setStatus("Account updated.", false);
+    setStatus(editStatusMsg, false);
   }
   loadAccounts();
 });
@@ -1753,13 +1785,6 @@ addAccountForm.addEventListener("submit", function (e) {
   }
   if (!username) {
     setStatus("Username on site is required.", true);
-    return;
-  }
-  if (!isStrongPassword(password)) {
-    setStatus(
-      "Site password must be strong: 8+ chars with lowercase, uppercase, number, and symbol.",
-      true
-    );
     return;
   }
 
@@ -1787,12 +1812,18 @@ addAccountForm.addEventListener("submit", function (e) {
       })
     : -1;
 
+  var addStatusMsg = "";
   if (normalizedWebsite && existingIndex >= 0) {
     accounts[existingIndex] = newAccount;
-    setStatus("Replaced existing account for that website (duplicate rule).", false);
+    addStatusMsg = "Replaced existing account for that website (duplicate rule).";
   } else {
     accounts.push(newAccount);
-    setStatus("Account saved.", false);
+    addStatusMsg = "Account saved.";
+  }
+  if (!isStrongPassword(password)) {
+    setMessageWarning(statusText, addStatusMsg + " " + WEAK_SITE_PASSWORD_WARNING);
+  } else {
+    setStatus(addStatusMsg, false);
   }
 
   setAccountsForUser(currentUsername, accounts);
