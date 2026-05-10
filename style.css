@@ -13,6 +13,8 @@
   --danger-soft: #fef2f2;
   --success: #16a34a;
   --success-soft: #effcf3;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
   --input-border: #cbd5e1;
   --input-focus-ring: rgba(37, 99, 235, 0.14);
   --border: #dbe4f0;
@@ -36,6 +38,8 @@ body.theme-dark {
   --danger-soft: #3a161b;
   --success: #4ade80;
   --success-soft: #102a1d;
+  --warning: #fbbf24;
+  --warning-soft: #2a2210;
   --input-border: #334155;
   --input-focus-ring: rgba(96, 165, 250, 0.2);
   --border: #26364f;
@@ -223,6 +227,13 @@ h1 {
   background: var(--danger-soft);
   border: 1px solid #fecaca;
   color: #991b1b;
+  padding: 8px 10px;
+}
+
+.message.warning {
+  background: var(--warning-soft);
+  border: 1px solid #fcd34d;
+  color: var(--warning);
   padding: 8px 10px;
 }
 

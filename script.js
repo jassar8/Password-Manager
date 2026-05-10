@@ -110,11 +110,21 @@ const KNOWN_SITE_ICONS = {
 // It also adds a success/error CSS class so UI colors are consistent.
 function setMessageState(element, text, isError) {
   element.textContent = text || "";
-  element.classList.remove("success", "error");
+  element.classList.remove("success", "error", "warning");
   if (!text) {
     return;
   }
   element.classList.add(isError ? "error" : "success");
+}
+
+// Warning style (amber): allows the action but tells the user security is weak.
+function setMessageWarning(element, text) {
+  element.textContent = text || "";
+  element.classList.remove("success", "error", "warning");
+  if (!text) {
+    return;
+  }
+  element.classList.add("warning");
 }
 
 function setAuthMessage(text, isError) {
@@ -538,6 +548,12 @@ function getAccountsForUser(username) {
   }
   return mig.accounts;
 }
+
+// Shown when the user chooses a password that fails isStrongPassword (we still allow it).
+const WEAK_MASTER_PASSWORD_WARNING =
+  "Warning: This master password is weak. Use at least 8 characters with lowercase, uppercase, a number, and a symbol for better security.";
+const WEAK_SITE_PASSWORD_WARNING =
+  "Warning: This site password is weak. Use at least 8 characters with lowercase, uppercase, a number, and a symbol if you can.";
 
 // --- Strong password: 8+, lower, upper, digit, symbol ---
 // Returns true only if password matches all required strength rules.
@@ -1241,20 +1257,17 @@ function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
     return { ok: false, message: "Current master password is incorrect." };
   }
 
-  // Validate new password strength before saving.
-  if (!isStrongPassword(nextPass)) {
-    return {
-      ok: false,
-      message:
-        "New master password must be 8+ characters with lowercase, uppercase, number, and symbol.",
-    };
-  }
+  // Weak master passwords are allowed; UI shows a warning after save.
 
   // Save only new master hash.
   // Account records are in a separate key (LS_ACCOUNTS), so they are not deleted here.
   users[userIndex].passwordHash = hashMasterPassword(users[userIndex].username, nextPass);
   saveUsers(users);
-  return { ok: true, message: "Master password updated successfully" };
+  return {
+    ok: true,
+    message: "Master password updated successfully.",
+    weakPassword: !isStrongPassword(nextPass),
+  };
 }
 
 function tryResumeSession() {
@@ -1394,11 +1407,10 @@ changeMasterForm.addEventListener("submit", async function (e) {
 
   // Beginner-friendly update flow:
   // 1) Check current password by hash comparison
-  // 2) Validate new password strength
-  // 3) Save new hash to users storage
+  // 2) Save new hash (weak passwords allowed; warning on status bar after success)
   const result = updateMasterPasswordForCurrentUser(currentPass, nextPass);
-  setChangeMasterMessage(result.message, !result.ok);
   if (!result.ok) {
+    setChangeMasterMessage(result.message, true);
     return;
   }
 
@@ -1417,6 +1429,10 @@ changeMasterForm.addEventListener("submit", async function (e) {
   changeMasterForm.reset();
   changeMasterForm.hidden = true;
   resetChangeMasterPasswordVisibility();
+  setChangeMasterMessage("", false);
+  if (result.weakPassword) {
+    setMessageWarning(statusText, "Master password updated. " + WEAK_MASTER_PASSWORD_WARNING);
+  }
 });
 
 loginForm.addEventListener("submit", async function (e) {
@@ -1467,13 +1483,6 @@ signupForm.addEventListener("submit", async function (e) {
     setAuthMessage("Passwords do not match.", true);
     return;
   }
-  if (!isStrongPassword(pass)) {
-    setAuthMessage(
-      "Master password must be 8+ characters with lowercase, uppercase, number, and symbol.",
-      true
-    );
-    return;
-  }
   const users = getUsers();
   const taken = users.some(function (u) {
     return u.username.toLowerCase() === username.toLowerCase();
@@ -1506,6 +1515,15 @@ signupForm.addEventListener("submit", async function (e) {
     return;
   }
   showApp(username);
+  if (!isStrongPassword(pass)) {
+    var existingSignupStatus = (statusText.textContent || "").trim();
+    setMessageWarning(
+      statusText,
+      existingSignupStatus
+        ? existingSignupStatus + " " + WEAK_MASTER_PASSWORD_WARNING
+        : WEAK_MASTER_PASSWORD_WARNING
+    );
+  }
 });
 
 logoutBtn.addEventListener("click", function () {
@@ -1676,13 +1694,6 @@ editAccountForm.addEventListener("submit", function (e) {
     setStatus("Username on site is required.", true);
     return;
   }
-  if (!isStrongPassword(nextPassword)) {
-    setStatus(
-      "Site password must be strong: 8+ chars with lowercase, uppercase, number, and symbol.",
-      true
-    );
-    return;
-  }
 
   const nextNormalizedWebsite = normalizeUrl(nextWebsiteUrl);
   if (nextWebsiteUrl && !nextNormalizedWebsite) {
@@ -1729,10 +1740,13 @@ editAccountForm.addEventListener("submit", function (e) {
   accounts[index] = updatedAccount;
   setAccountsForUser(currentUsername, accounts);
   closeEditAccountModal();
-  if (replacedDuplicate) {
-    setStatus("Replaced existing account for that website (duplicate rule).", false);
+  var editStatusMsg = replacedDuplicate
+    ? "Replaced existing account for that website (duplicate rule)."
+    : "Account updated.";
+  if (!isStrongPassword(nextPassword)) {
+    setMessageWarning(statusText, editStatusMsg + " " + WEAK_SITE_PASSWORD_WARNING);
   } else {
-    setStatus("Account updated.", false);
+    setStatus(editStatusMsg, false);
   }
   loadAccounts();
 });
@@ -1753,13 +1767,6 @@ addAccountForm.addEventListener("submit", function (e) {
   }
   if (!username) {
     setStatus("Username on site is required.", true);
-    return;
-  }
-  if (!isStrongPassword(password)) {
-    setStatus(
-      "Site password must be strong: 8+ chars with lowercase, uppercase, number, and symbol.",
-      true
-    );
     return;
   }
 
@@ -1787,12 +1794,18 @@ addAccountForm.addEventListener("submit", function (e) {
       })
     : -1;
 
+  var addStatusMsg = "";
   if (normalizedWebsite && existingIndex >= 0) {
     accounts[existingIndex] = newAccount;
-    setStatus("Replaced existing account for that website (duplicate rule).", false);
+    addStatusMsg = "Replaced existing account for that website (duplicate rule).";
   } else {
     accounts.push(newAccount);
-    setStatus("Account saved.", false);
+    addStatusMsg = "Account saved.";
+  }
+  if (!isStrongPassword(password)) {
+    setMessageWarning(statusText, addStatusMsg + " " + WEAK_SITE_PASSWORD_WARNING);
+  } else {
+    setStatus(addStatusMsg, false);
   }
 
   setAccountsForUser(currentUsername, accounts);
