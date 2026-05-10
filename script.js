@@ -18,6 +18,10 @@ const KDF_ITERATIONS = 210000;
 const KDF_HASH = "SHA-256";
 const ENCRYPTED_PREFIX_V2 = "v2:";
 
+// --- Class demo only: logs master password + derived key to the browser console ---
+// Set to false after your presentation. Never enable in a real password manager.
+const LOG_CRYPTO_DEMO_TO_CONSOLE = true;
+
 // --- Page elements ---
 const authSection = document.getElementById("authSection");
 const appSection = document.getElementById("appSection");
@@ -306,17 +310,36 @@ function setAccountsForUser(username, accounts) {
   saveAccountsMap(map);
 }
 
-// --- Key derivation + encryption helpers (harder-to-steal than a hardcoded XOR key) ---
-// Why this is harder for an attacker to "steal the key":
-// - There is no single secret byte string in source code that unlocks every vault. The
-//   encryption key is computed from (master password + per-user salt) at login time.
-// - Only the salt (and a separate login hash) persist in localStorage — not the key.
-//   Guessing the key from storage alone is not enough; offline guessing targets the
-//   master password through slow PBKDF2 (many iterations, SHA-256).
-// - Even with this file and a localStorage dump, ciphertext stays opaque without the
-//   correct master password to re-derive the same key (contrast: branch main's XOR_KEY).
-// Site passwords are still XOR'd with the derived bytes here (teaching XOR); production
-// apps would use AES-GCM or similar. Log out to clear the in-memory key.
+// --- Derived XOR key for saved site passwords (feature branch — PBKDF2, not hardcoded XOR_KEY) ---
+//
+// 1) How the user’s master password becomes the XOR key
+//    At login we call deriveEncryptionKeyBytes(masterPassword, salt). The Web Crypto API
+//    runs PBKDF2: it takes the master password as bytes, mixes in the per-user salt, and
+//    repeats a one-way PRF KDF_ITERATIONS times (see KDF_HASH). The output is 256 bits
+//    (32 bytes). That byte array is stored in activeEncryptionKeyBytes and used as the
+//    repeating XOR keystream in xorBytes() for each site password (UTF-8 bytes).
+//
+// 2) Why this is harder to steal than the old hardcoded key (branch main)
+//    On main, XOR_KEY is a literal in script.js — anyone with the repo or “View Source”
+//    learns the key and can decrypt every v2: blob from storage. Here, the XOR material
+//    is not in source code. Without the master password, an attacker who only has this
+//    file + a localStorage dump sees salt + ciphertext but not the key; they must guess
+//    the password and pay the PBKDF2 cost per guess (still not perfect, but much better
+//    pedagogy than a fixed key in JS).
+//
+// 3) What an attacker typically sees (this app has no backend “database”)
+//    - localStorage: usernames, passwordHash (demo DJB2-style), kdfSalt (random, not
+//      secret), encrypted site rows (v2:…), session username, theme. Not the master
+//      password on disk. Not the derived key on disk.
+//    - Memory (while the tab is open): the derived key may exist in JS as
+//      activeEncryptionKeyBytes; malware or a debugger could still read RAM — real apps
+//    use more defenses; this is a teaching step up from “key in source”.
+//
+// 4) Where encryption and decryption happen
+//    encryptPassword() → UTF-8 encode → xorBytes(..., activeEncryptionKeyBytes) →
+//    base64 → prefix ENCRYPTED_PREFIX_V2. decryptPassword() reverses that path.
+//
+// Production apps would use AES-GCM (or similar), not XOR. Log out to clear the in-memory key.
 function bytesToBase64(bytes) {
   var binary = "";
   for (var i = 0; i < bytes.length; i++) {
@@ -341,6 +364,7 @@ function generateRandomSaltBase64() {
 }
 
 async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
+  // Turn the typed master password and stored salt into 32 bytes of key material.
   const encoder = new TextEncoder();
   const saltBytes = base64ToBytes(saltBase64);
   const passwordKey = await crypto.subtle.importKey(
@@ -350,6 +374,8 @@ async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
     false,
     ["deriveBits"]
   );
+  // Salt and iteration count are parameters to PBKDF2 — same password + different salt
+  // yields a different XOR key; high iterations slow down brute-force guessing.
   const bits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
@@ -364,6 +390,7 @@ async function deriveEncryptionKeyBytes(masterPassword, saltBase64) {
 }
 
 function xorBytes(inputBytes, keyBytes) {
+  // XOR each data byte with the next byte of the derived key (repeating if key is shorter).
   const out = new Uint8Array(inputBytes.length);
   for (var i = 0; i < inputBytes.length; i++) {
     out[i] = inputBytes[i] ^ keyBytes[i % keyBytes.length];
@@ -372,6 +399,7 @@ function xorBytes(inputBytes, keyBytes) {
 }
 
 function encryptPassword(plainText) {
+  // Encryption: site password plaintext → XOR with derived key → store as v2: + base64.
   if (!plainText) {
     return "";
   }
@@ -384,6 +412,7 @@ function encryptPassword(plainText) {
 }
 
 function decryptPassword(storedValue) {
+  // Decryption: v2: + base64 → XOR with same derived key → UTF-8 site password.
   const encryptedText = storedValue || "";
   if (!encryptedText) {
     return "";
@@ -398,6 +427,45 @@ function decryptPassword(storedValue) {
     return new TextDecoder().decode(plainBytes);
   }
   return "";
+}
+
+function derivedKeyBytesToHex(bytes) {
+  if (!bytes || !bytes.length) {
+    return "";
+  }
+  var s = "";
+  for (var i = 0; i < bytes.length; i++) {
+    var h = bytes[i].toString(16);
+    s += h.length === 1 ? "0" + h : h;
+  }
+  return s;
+}
+
+function logCryptoDemoForPresentation(masterPassword, saltBase64) {
+  if (!LOG_CRYPTO_DEMO_TO_CONSOLE || !masterPassword) {
+    return;
+  }
+  const demoPlaintext = "Presentation-demo:MySitePassword!";
+  var ciphertext;
+  var roundTrip;
+  try {
+    ciphertext = encryptPassword(demoPlaintext);
+    roundTrip = decryptPassword(ciphertext);
+  } catch (err) {
+    console.warn("[crypto demo] encrypt/decrypt failed:", err);
+    return;
+  }
+  console.log(
+    "%c========== Crypto demo (class only — set LOG_CRYPTO_DEMO_TO_CONSOLE = false) ==========",
+    "font-weight:bold"
+  );
+  console.log("PBKDF2:", KDF_ITERATIONS, "iterations,", KDF_HASH + "; salt (also in localStorage):", saltBase64);
+  console.log("Original master password (demo / never log in real apps):", masterPassword);
+  console.log("Derived XOR key (32 bytes, hex):", derivedKeyBytesToHex(activeEncryptionKeyBytes));
+  console.log("Demo site-password plaintext:", demoPlaintext);
+  console.log("Encrypted (stored shape):", ciphertext);
+  console.log("Decrypted (round-trip):", roundTrip);
+  console.log("%c========== End crypto demo ==========", "font-weight:bold");
 }
 
 // --- One saved-account shape: always use encryptedPassword in localStorage ---
@@ -1138,6 +1206,8 @@ function showApp(username) {
 }
 
 async function activateEncryptionKeyForUser(username, masterPassword) {
+  // Loads or creates per-user kdfSalt in localStorage, derives the XOR key from the
+  // master password, keeps only the derived bytes in activeEncryptionKeyBytes (RAM).
   const users = getUsers();
   const userIndex = findUserIndexByUsername(users, username);
   if (userIndex < 0) {
@@ -1147,7 +1217,9 @@ async function activateEncryptionKeyForUser(username, masterPassword) {
     users[userIndex].kdfSalt = generateRandomSaltBase64();
     saveUsers(users);
   }
-  activeEncryptionKeyBytes = await deriveEncryptionKeyBytes(masterPassword, users[userIndex].kdfSalt);
+  const salt = users[userIndex].kdfSalt;
+  activeEncryptionKeyBytes = await deriveEncryptionKeyBytes(masterPassword, salt);
+  logCryptoDemoForPresentation(masterPassword, salt);
 }
 
 function updateMasterPasswordForCurrentUser(currentPass, nextPass) {
